@@ -1,0 +1,11 @@
+{
+  "name": "htaahandbook",
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd backend && node server.js",
+    "client": "cd htaa_app && flutter run -d 044803DC-3F14-41FA-B1F9-1CA13ED5FDBF"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
