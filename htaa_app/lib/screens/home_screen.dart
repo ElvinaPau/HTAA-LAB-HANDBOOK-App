@@ -30,6 +30,7 @@ class HomeScreenState extends State<HomeScreen> {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
+        data.sort((a, b) => (a['position'] ?? 0).compareTo(b['position'] ?? 0));
         setState(() {
           allCategories =
               data
