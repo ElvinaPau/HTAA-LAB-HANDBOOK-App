@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 4000;
 // Routes
 app.get("/api/categories", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM categories ORDER BY id ASC");
+    const result = await pool.query("SELECT * FROM categories ORDER BY position ASC");
     res.json(result.rows);
   } catch (err) {
     console.error(err.message);
@@ -33,7 +33,7 @@ app.get("/api/lab-tests", async (req, res) => {
       `SELECT lt.* FROM lab_tests lt
        JOIN categories c ON lt.category_id = c.id
        WHERE c.category_name = $1
-       ORDER BY lt.id ASC`,
+       ORDER BY lt.position ASC`,
       [categoryName]
     );
     res.json(result.rows);
