@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:htaa_app/screens/contact_screen.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '/api_config.dart';
@@ -19,6 +20,7 @@ class HomeScreenState extends State<HomeScreen> {
   String? errorMessage;
 
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -56,6 +58,13 @@ class HomeScreenState extends State<HomeScreen> {
         isLoading = false;
       });
     }
+  }
+
+  void performSearch() {
+    FocusScope.of(context).unfocus(); // dismiss keyboard
+    setState(() {
+      searchQuery = _searchController.text.trim();
+    });
   }
 
   @override
@@ -98,6 +107,7 @@ class HomeScreenState extends State<HomeScreen> {
                         height: 50,
                         child: TextField(
                           controller: _searchController,
+                          focusNode: _searchFocusNode,
                           decoration: InputDecoration(
                             hintText: 'Search for categories...',
                             prefixIcon: const Icon(Icons.search),
@@ -243,10 +253,18 @@ class HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(width: 48),
             IconButton(
-              iconSize: 42,
-              icon: const Icon(Icons.settings),
-              onPressed: () {},
-            ),
+  iconSize: 42,
+  icon: const Icon(Icons.phone),
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ContactScreen(),
+      ),
+    );
+  },
+),
+
           ],
         ),
       ),
@@ -254,7 +272,9 @@ class HomeScreenState extends State<HomeScreen> {
         width: 70,
         height: 70,
         child: FloatingActionButton(
-          onPressed: () {},
+          onPressed: () {
+            FocusScope.of(context).requestFocus(_searchFocusNode);
+          },
           tooltip: 'Search',
           backgroundColor: Theme.of(context).primaryColor,
           shape: RoundedRectangleBorder(
