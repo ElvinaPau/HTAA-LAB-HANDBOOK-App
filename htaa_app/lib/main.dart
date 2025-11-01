@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 
+final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
+
 Future<void> main() async {
   runApp(const HtaaApp());
 }
@@ -18,6 +20,7 @@ class HtaaApp extends StatelessWidget {
       ),
       home: HomeScreen(),
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [routeObserver],
     );
   }
 }

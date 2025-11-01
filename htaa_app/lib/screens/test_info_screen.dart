@@ -1,19 +1,108 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:auto_size_text/auto_size_text.dart';
+import 'package:htaa_app/main.dart';
+import 'package:htaa_app/screens/bookmark_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:html/parser.dart' as html_parser;
 import '/api_config.dart';
+import 'package:htaa_app/services/bookmark_service.dart';
 
-class TestInfoScreen extends StatelessWidget {
+class TestInfoScreen extends StatefulWidget {
   final Map<String, dynamic> tests;
   const TestInfoScreen({super.key, required this.tests});
 
   @override
+  State<TestInfoScreen> createState() => _TestInfoScreenState();
+}
+
+class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
+  final BookmarkService _bookmarkService = BookmarkService();
+  bool _isBookmarked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBookmarkStatus();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Subscribe to route changes
+    routeObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  // Called when the current route has been popped back to (i.e., screen is visible again)
+  @override
+  void didPopNext() {
+    _checkBookmarkStatus(); // refresh bookmark status
+  }
+
+  Future<void> _checkBookmarkStatus() async {
+    final testId = widget.tests['test_id'] ?? widget.tests['id'];
+    if (testId != null) {
+      final isBookmarked = await _bookmarkService.isBookmarked(testId);
+      if (mounted) setState(() => _isBookmarked = isBookmarked);
+    }
+  }
+
+  Future<void> _navigateToBookmarks() async {
+    final hasChanges = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => BookmarkScreen()),
+    );
+
+    // If bookmarks were modified in BookmarkScreen, refresh status
+    if (hasChanges == true) {
+      _checkBookmarkStatus();
+    }
+  }
+
+  Future<void> _toggleBookmark() async {
+    final testId = widget.tests['test_id'] ?? widget.tests['id'];
+    if (testId == null) return;
+
+    final nowBookmarked = await _bookmarkService.toggleBookmark(widget.tests);
+
+    setState(() => _isBookmarked = nowBookmarked);
+
+    if (mounted) {
+      // Show SnackBar with optional "View" action
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            nowBookmarked
+                ? 'Added "${widget.tests['test_name'] ?? widget.tests['name']}" to bookmarks'
+                : 'Removed "${widget.tests['test_name'] ?? widget.tests['name']}" from bookmarks',
+          ),
+          duration: const Duration(seconds: 3),
+          backgroundColor: nowBookmarked ? Colors.green : Colors.grey[700],
+          action:
+              nowBookmarked
+                  ? SnackBarAction(
+                    label: 'View',
+                    textColor: Colors.white,
+                    onPressed:
+                        _navigateToBookmarks, // Updated to use new method
+                  )
+                  : null,
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final List<dynamic> infos = tests['infos'] ?? [];
+    final List<dynamic> infos = widget.tests['infos'] ?? [];
     final String testName =
-        tests['test_name'] ?? tests['name'] ?? 'Lab Test Info';
+        widget.tests['test_name'] ?? widget.tests['name'] ?? 'Lab Test Info';
     final String apiBaseUrl = getBaseUrl();
 
     return Scaffold(
@@ -29,8 +118,21 @@ class TestInfoScreen extends StatelessWidget {
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            Navigator.pop(context, _isBookmarked); // send back status
+          },
         ),
+
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+              color: _isBookmarked ? Colors.blue : null,
+            ),
+            onPressed: _toggleBookmark,
+            tooltip: _isBookmarked ? 'Remove bookmark' : 'Add bookmark',
+          ),
+        ],
       ),
       body:
           infos.isEmpty
@@ -54,20 +156,19 @@ class TestInfoScreen extends StatelessWidget {
   }
 }
 
+// Rest of the _TestInfoCard class remains the same
 class _TestInfoCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final String apiBaseUrl;
 
   const _TestInfoCard({required this.data, required this.apiBaseUrl});
 
-  /// Helper to strip HTML tags from a string
   String _stripHtml(String? html) {
     if (html == null || html.isEmpty) return '';
     final regex = RegExp(r'<[^>]*>');
     return html.replaceAll(regex, '').replaceAll('&nbsp;', ' ').trim();
   }
 
-  /// Helper to sanitize data recursively
   dynamic _sanitizeData(dynamic data) {
     if (data is String) return _stripHtml(data);
     if (data is List) return data.map(_sanitizeData).toList();
@@ -81,15 +182,12 @@ class _TestInfoCard extends StatelessWidget {
     return data;
   }
 
-  /// Detect and construct image source URL
   String? _getImageSrc() {
     final dynamic image = data['image'];
-
     if (image == null) return null;
 
     String? result;
     if (image is String) {
-      // Replace localhost with the correct base URL
       if (image.contains('localhost:5001')) {
         result = image.replaceAll('http://localhost:5001', apiBaseUrl);
       } else if (image.startsWith('http')) {
@@ -99,7 +197,6 @@ class _TestInfoCard extends StatelessWidget {
       }
     } else if (image is Map && image['url'] != null) {
       final String url = image['url'].toString();
-      // Replace localhost with the correct base URL
       if (url.contains('localhost:5001')) {
         result = url.replaceAll('http://localhost:5001', apiBaseUrl);
       } else if (url.startsWith('http')) {
@@ -111,10 +208,8 @@ class _TestInfoCard extends StatelessWidget {
     return result;
   }
 
-  /// Get specimen types as a list of strings
   List<String> _getSpecimenTypes() {
     final List<String> types = [];
-
     if (data['specimenType'] != null) {
       if (data['specimenType'] is List) {
         types.addAll(
@@ -127,50 +222,37 @@ class _TestInfoCard extends StatelessWidget {
         types.add(data['specimenType']);
       }
     }
-
     if (data['otherSpecimen'] != null) {
       types.add(data['otherSpecimen'].toString());
     }
-
     return types;
   }
 
-  /// Process HTML to fix list alignments and image alignments
   String _processHtmlForAlignment(String htmlContent) {
     final document = html_parser.parse(htmlContent);
-
-    // Fix list item alignments - preserve list markers
     final listItems = document.querySelectorAll('li');
     for (var li in listItems) {
       final style = li.attributes['style'] ?? '';
-
       if (style.contains('text-align: center') ||
           style.contains('text-align:center')) {
-        // Remove conflicting styles
         final cleanedStyle =
             style
                 .replaceAll(RegExp(r'list-style-position:\s*[^;]+;?'), '')
                 .trim();
-
-        // Use list-style-position: outside for inline bullets
         li.attributes['style'] =
             '$cleanedStyle list-style-position: outside;'.trim();
       } else if (style.contains('text-align: right') ||
           style.contains('text-align:right')) {
-        // Remove conflicting styles
         final cleanedStyle =
             style
                 .replaceAll(RegExp(r'list-style-position:\s*[^;]+;?'), '')
                 .replaceAll(RegExp(r'direction:\s*[^;]+;?'), '')
                 .trim();
-
-        // For right alignment, just use list-style-position: outside
         li.attributes['style'] =
             '$cleanedStyle list-style-position: outside;'.trim();
       }
     }
 
-    // Fix image alignments
     final images = document.querySelectorAll('img');
     for (var img in images) {
       final alignment = img.attributes['data-alignment'] ?? '';
@@ -187,20 +269,16 @@ class _TestInfoCard extends StatelessWidget {
         alignStyle = 'display: block; margin-left: 0; margin-right: auto;';
       }
 
-      // Merge with existing style, removing duplicate display/margin properties
       String finalStyle = currentStyle;
       if (alignStyle.isNotEmpty) {
-        // Remove existing margin/display properties
         finalStyle = currentStyle
             .replaceAll(RegExp(r'margin-left:\s*[^;]+;?'), '')
             .replaceAll(RegExp(r'margin-right:\s*[^;]+;?'), '')
             .replaceAll(RegExp(r'display:\s*[^;]+;?'), '');
         finalStyle = '$alignStyle $finalStyle'.trim();
       }
-
       img.attributes['style'] = finalStyle;
     }
-
     return document.body?.innerHtml ?? htmlContent;
   }
 
@@ -233,7 +311,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildTitle() {
     if (data['title'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
@@ -245,7 +322,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildLabInCharge() {
     if (data['labInCharge'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -265,7 +341,6 @@ class _TestInfoCard extends StatelessWidget {
   Widget _buildSpecimenType() {
     final List<String> types = _getSpecimenTypes();
     if (types.isEmpty) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -291,12 +366,10 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildForm(BuildContext context) {
     if (data['form'] == null) return const SizedBox.shrink();
-
     final form = data['form'];
     if (form is! Map || (form['text'] == null && form['url'] == null)) {
       return const SizedBox.shrink();
     }
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -345,7 +418,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildTAT() {
     if (data['TAT'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -380,7 +452,6 @@ class _TestInfoCard extends StatelessWidget {
   Widget _buildContainer() {
     final String? imageSrc = _getImageSrc();
     if (imageSrc == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Column(
@@ -431,7 +502,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildContainerLabel() {
     if (data['containerLabel'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(top: 2, bottom: 8),
       child: Text(
@@ -443,7 +513,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildSampleVolume() {
     if (data['sampleVolume'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -482,7 +551,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildDescription() {
     if (data['description'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Html(
@@ -508,7 +576,6 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildRemark() {
     if (data['remark'] == null) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(top: 5),
       child: Column(

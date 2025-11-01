@@ -71,10 +71,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
     super.dispose();
   }
 
-  /// Constructs the API URL based on categoryId or categoryName
   String _buildApiUrl() {
     final baseUrl = getBaseUrl();
-
     if (widget.categoryId != null) {
       return '$baseUrl/api/tests?category_id=${widget.categoryId}';
     } else {
@@ -82,7 +80,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
     }
   }
 
-  /// Fetches tests from the API
   Future<void> _fetchTests() async {
     if (!mounted) return;
 
@@ -163,7 +160,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
     }
   }
 
-  /// Filters tests based on search query
   void _filterTests(String query) {
     setState(() {
       searchQuery = query;
@@ -179,7 +175,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
     });
   }
 
-  /// Scrolls to the first test starting with the given letter
   void _scrollToLetter(String letter) {
     final index = filteredTests.indexWhere((test) {
       final testName = _getTestName(test);
@@ -187,19 +182,13 @@ class _CategoryScreenState extends State<CategoryScreen> {
     });
 
     if (index != -1) {
-      // Calculate approximate position
-      // Card height ~76px (16 padding top + 44 content + 16 padding bottom)
-      // Plus 12px margin bottom = 88px per item
-      // Plus 16px top padding of ListView
       final position = (index * 88.0) + 16.0;
-
       _scrollController.animateTo(
         position,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );
 
-      // Show feedback
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -210,7 +199,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
         ),
       );
     } else {
-      // No test found starting with this letter
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -223,85 +211,90 @@ class _CategoryScreenState extends State<CategoryScreen> {
     }
   }
 
-  /// Gets the test name from various possible keys
   String _getTestName(Map<String, dynamic> test) {
     return test['test_name'] ?? test['name'] ?? 'Unnamed Test';
   }
 
-  /// Handles test item tap - fetches full test details with infos
   Future<void> _onTestTap(Map<String, dynamic> test) async {
-    final testId = test['id'];
+  final testId = test['id'];
 
-    if (testId == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Invalid test ID')));
-      }
-      return;
-    }
-
-    // Show loading indicator
+  if (testId == null) {
     if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invalid test ID')));
     }
+    return;
+  }
 
-    try {
-      // Fetch full test details with infos
-      final response = await http
-          .get(
-            Uri.parse('${getBaseUrl()}/api/tests/$testId?includeinfos=true'),
-            headers: {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 30));
+  if (mounted) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+  }
 
-      if (!mounted) return;
+  try {
+    final response = await http
+        .get(
+          Uri.parse('${getBaseUrl()}/api/tests/$testId?includeinfos=true'),
+          headers: {'Content-Type': 'application/json'},
+        )
+        .timeout(const Duration(seconds: 30));
 
-      // Close loading dialog
-      Navigator.of(context).pop();
+    if (!mounted) return;
+    Navigator.of(context).pop(); // Close loading dialog
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> fullTestData = json.decode(response.body);
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> fullTestData = json.decode(response.body);
 
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TestInfoScreen(tests: fullTestData),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Failed to load test details (${response.statusCode})',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
+      // Add category info for bookmarking
+      fullTestData['category_name'] = widget.categoryName;
+      fullTestData['category_id'] = widget.categoryId;
+
+      if (mounted) {
+        // Await the returned bookmark status
+        final updatedBookmark = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TestInfoScreen(tests: fullTestData),
+          ),
+        );
+
+        // Update the test in the list if bookmark changed
+        if (updatedBookmark != null) {
+          setState(() {
+            test['isBookmarked'] = updatedBookmark;
+          });
         }
       }
-    } catch (e) {
-      if (!mounted) return;
-
-      // Close loading dialog
-      Navigator.of(context).pop();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error loading test: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      debugPrint('Error fetching test details: $e');
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to load test details (${response.statusCode})',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
+  } catch (e) {
+    if (!mounted) return;
+    Navigator.of(context).pop(); // Close loading dialog
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error loading test: ${e.toString()}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    debugPrint('Error fetching test details: $e');
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -412,14 +405,11 @@ class _CategoryScreenState extends State<CategoryScreen> {
 
   Widget _buildTestsListWithSearch() {
     return GestureDetector(
-      onTap: () {
-        FocusScope.of(context).unfocus(); // dismiss keyboard
-      },
+      onTap: () => FocusScope.of(context).unfocus(),
       child: Stack(
         children: [
           Column(
             children: [
-              // Search bar
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: TextField(
@@ -441,11 +431,17 @@ class _CategoryScreenState extends State<CategoryScreen> {
                     fillColor: Colors.grey[100],
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(25.0),
-                      borderSide: BorderSide(color: Colors.grey, width: 1.5),
+                      borderSide: const BorderSide(
+                        color: Colors.grey,
+                        width: 1.5,
+                      ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(25.0),
-                      borderSide: BorderSide(color: Colors.blue, width: 2.0),
+                      borderSide: const BorderSide(
+                        color: Colors.blue,
+                        width: 2.0,
+                      ),
                     ),
                     contentPadding: const EdgeInsets.symmetric(
                       vertical: 12.0,
@@ -455,7 +451,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
                   onChanged: _filterTests,
                 ),
               ),
-              // Results count
               if (searchQuery.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -470,7 +465,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
                     ),
                   ),
                 ),
-              // Tests list
               Expanded(
                 child:
                     filteredTests.isEmpty
@@ -530,7 +524,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
               ),
             ],
           ),
-          // Alphabet scroll bar
           if (searchQuery.isEmpty && filteredTests.isNotEmpty)
             Positioned(
               right: 4,
