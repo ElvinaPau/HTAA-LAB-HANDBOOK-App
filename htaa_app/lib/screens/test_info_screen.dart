@@ -27,7 +27,15 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   final CacheService _cacheService = CacheService();
   bool _isBookmarked = false;
   bool _isOfflineMode = false;
+  bool _isLoading = false;
   Map<String, dynamic>? _cachedTestData;
+
+  // Top message state
+  String? topMessage;
+  Color? topMessageColor;
+  Timer? _messageTimer;
+  VoidCallback? _topMessageAction;
+  String? _topMessageActionLabel;
 
   // Cache configuration
   static const String _cacheBoxName = 'testDetailsBox';
@@ -38,6 +46,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
 
   // Connectivity
   late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
+  Timer? _connectivityDebounce;
 
   @override
   void initState() {
@@ -45,7 +54,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     _checkBookmarkStatus();
     _initializeTestData();
 
-    // Listen for connectivity changes
+    // Listen for connectivity changes with debouncing
     _connectivitySubscription = ConnectivityService().connectivityStream.listen(
       _handleConnectivityChange,
     );
@@ -54,45 +63,63 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Subscribe to route changes
     routeObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
   }
 
   @override
   void dispose() {
+    _messageTimer?.cancel();
+    _connectivityDebounce?.cancel();
     _connectivitySubscription.cancel();
     routeObserver.unsubscribe(this);
     super.dispose();
   }
 
-  void _handleConnectivityChange(ConnectivityResult result) {
-    if (!mounted) return;
+  // Uniform notification system
+  void showTopMessage(
+    String message, {
+    Color color = Colors.blue,
+    VoidCallback? onActionPressed,
+    String? actionLabel,
+  }) {
+    _messageTimer?.cancel();
 
-    if (result != ConnectivityResult.none && _isOfflineMode) {
-      setState(() => _isOfflineMode = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Back online!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } else if (result == ConnectivityResult.none && !_isOfflineMode) {
-      setState(() => _isOfflineMode = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You are offline'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
+    setState(() {
+      topMessage = message;
+      topMessageColor = color;
+      _topMessageAction = onActionPressed;
+      _topMessageActionLabel = actionLabel;
+    });
+
+    _messageTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          topMessage = null;
+          _topMessageAction = null;
+          _topMessageActionLabel = null;
+        });
+      }
+    });
   }
 
-  // Called when the current route has been popped back to (i.e., screen is visible again)
+  void _handleConnectivityChange(ConnectivityResult result) {
+    _connectivityDebounce?.cancel();
+    _connectivityDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+
+      if (result != ConnectivityResult.none && _isOfflineMode) {
+        setState(() => _isOfflineMode = false);
+        showTopMessage('Back online!', color: Colors.green);
+      } else if (result == ConnectivityResult.none && !_isOfflineMode) {
+        setState(() => _isOfflineMode = true);
+        showTopMessage('You are offline', color: Colors.red);
+      }
+    });
+  }
+
   @override
   void didPopNext() {
-    _checkBookmarkStatus(); // refresh bookmark status
+    _checkBookmarkStatus();
   }
 
   Future<void> _checkBookmarkStatus() async {
@@ -104,6 +131,8 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   }
 
   Future<void> _initializeTestData() async {
+    setState(() => _isLoading = true);
+
     final infos = widget.tests['infos'];
 
     // If we already have complete data, cache it and use it
@@ -116,6 +145,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
       setState(() {
         _cachedTestData = widget.tests;
         _isOfflineMode = false;
+        _isLoading = false;
       });
     } else {
       // Try to load from cache first
@@ -127,40 +157,18 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
       );
 
       if (cachedData != null && cachedData is Map) {
-        // Cache exists, use it
         setState(() {
           _cachedTestData = Map<String, dynamic>.from(cachedData);
           _isOfflineMode = true;
+          _isLoading = false;
         });
 
-        // Show offline mode snackbar
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.cloud_off, color: Colors.white, size: 20),
-                  const SizedBox(width: 25),
-                  Expanded(
-                    child: Text(
-                      'Using cached data.\n${_getCacheAgeMessage()}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.orange[700],
-              duration: const Duration(seconds: 3),
-              action: SnackBarAction(
-                label: 'Retry',
-                textColor: Colors.white,
-                onPressed: _refreshTestData,
-              ),
-            ),
-          );
-        }
+        showTopMessage(
+          'You are offline. Data cannot be refreshed.',
+          color: Colors.red,
+        );
       } else {
-        // No cache - try to fetch from API (will fail if offline)
+        // No cache - try to fetch from API
         await _refreshTestData();
       }
     }
@@ -169,8 +177,13 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   Future<void> _refreshTestData() async {
     if (!mounted) return;
 
+    setState(() => _isLoading = true);
+
     final testId = widget.tests['id'] ?? widget.tests['test_id'];
-    if (testId == null) return;
+    if (testId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
 
     try {
       final response = await http
@@ -181,9 +194,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           .timeout(
             const Duration(seconds: 30),
             onTimeout: () {
-              throw Exception(
-                'Request timed out. Please check your connection.',
-              );
+              throw Exception('Connection timeout');
             },
           );
 
@@ -193,8 +204,12 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         final Map<String, dynamic> data = json.decode(response.body);
 
         // Add category info for bookmarking
-        data['category_name'] = widget.tests['category_name'];
-        data['category_id'] = widget.tests['category_id'];
+        if (widget.tests['category_name'] != null) {
+          data['category_name'] = widget.tests['category_name'];
+        }
+        if (widget.tests['category_id'] != null) {
+          data['category_id'] = widget.tests['category_id'];
+        }
 
         // Save to cache
         await _cacheService.saveData(_cacheBoxName, _testDetailsCacheKey, data);
@@ -202,56 +217,64 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         setState(() {
           _cachedTestData = data;
           _isOfflineMode = false;
+          _isLoading = false;
         });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Data refreshed successfully'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
       } else {
-        throw Exception('Failed to load data (${response.statusCode})');
+        throw Exception('Server error (${response.statusCode})');
       }
     } catch (e) {
-      // Failed to fetch - set offline mode
-      setState(() => _isOfflineMode = true);
+      // Try to load from cache on error
+      final cachedData = _cacheService.getData(
+        _cacheBoxName,
+        _testDetailsCacheKey,
+        defaultValue: null,
+        maxAge: null,
+      );
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to refresh: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
+      if (cachedData != null && cachedData is Map) {
+        setState(() {
+          _cachedTestData = Map<String, dynamic>.from(cachedData);
+          _isOfflineMode = true;
+          _isLoading = false;
+        });
+
+        showTopMessage(
+          'You are offline. Data cannot be refreshed.',
+          color: Colors.red,
         );
+      } else {
+        setState(() {
+          _isOfflineMode = true;
+          _isLoading = false;
+        });
+
+        String errorMessage = _getErrorMessage(e);
+        showTopMessage(errorMessage, color: Colors.red);
       }
     }
   }
 
-  String _getCacheAgeMessage() {
-    final age = _cacheService.getCacheAge(_cacheBoxName, _testDetailsCacheKey);
-    if (age == null) return '';
-
-    if (age.inMinutes < 60) {
-      return 'Updated ${age.inMinutes} min ago';
-    } else if (age.inHours < 24) {
-      return 'Updated ${age.inHours} hrs ago';
+  String _getErrorMessage(dynamic error) {
+    final errorStr = error.toString();
+    if (errorStr.contains('timeout') || errorStr.contains('Timeout')) {
+      return 'Connection timeout. Please check your internet.';
+    } else if (errorStr.contains('SocketException') ||
+        errorStr.contains('Unable to connect') ||
+        errorStr.contains('Failed host lookup')) {
+      return 'No internet connection. Please try again.';
+    } else if (errorStr.contains('Server error')) {
+      return 'Server error. Please try again later.';
     } else {
-      return 'Updated ${age.inDays} days ago';
+      return 'Failed to load test info. Please try again.';
     }
   }
 
   Future<void> _navigateToBookmarks() async {
     final hasChanges = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => BookmarkScreen()),
+      MaterialPageRoute(builder: (_) => const BookmarkScreen()),
     );
 
-    // If bookmarks were modified in BookmarkScreen, refresh status
     if (hasChanges == true) {
       _checkBookmarkStatus();
     }
@@ -269,26 +292,19 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     if (mounted) {
       final testName = dataToBookmark['test_name'] ?? dataToBookmark['name'];
 
-      // Show SnackBar with optional "View" action
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            nowBookmarked
-                ? 'Added "$testName" to bookmarks'
-                : 'Removed "$testName" from bookmarks',
-          ),
-          duration: const Duration(seconds: 3),
-          backgroundColor: nowBookmarked ? Colors.green : Colors.grey[700],
-          action:
-              nowBookmarked
-                  ? SnackBarAction(
-                    label: 'View',
-                    textColor: Colors.white,
-                    onPressed: _navigateToBookmarks,
-                  )
-                  : null,
-        ),
-      );
+      if (nowBookmarked) {
+        showTopMessage(
+          'Added "$testName" to bookmarks',
+          color: Colors.green,
+          actionLabel: 'View',
+          onActionPressed: _navigateToBookmarks,
+        );
+      } else {
+        showTopMessage(
+          'Removed "$testName" from bookmarks',
+          color: Colors.grey,
+        );
+      }
     }
   }
 
@@ -317,7 +333,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
             ),
             if (_isOfflineMode) ...[
               const SizedBox(width: 6),
-              Icon(Icons.cloud_off, size: 18, color: Colors.orange),
+              Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
             ],
           ],
         ),
@@ -325,16 +341,10 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () {
-            Navigator.pop(context, _isBookmarked); // send back status
+            Navigator.pop(context, _isBookmarked);
           },
         ),
         actions: [
-          if (_isOfflineMode)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _refreshTestData,
-              tooltip: 'Refresh data',
-            ),
           IconButton(
             icon: Icon(
               _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
@@ -345,72 +355,115 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           ),
         ],
       ),
-      body:
-          infos.isEmpty
-              ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 64,
-                        color: Colors.grey[400],
+      body: Column(
+        children: [
+          // Uniform top message banner
+          if (topMessage != null)
+            Container(
+              width: double.infinity,
+              color: topMessageColor,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      topMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        "No test infos available",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _isOfflineMode
-                            ? "This test hasn't been cached yet.\nPlease connect to the internet to view."
-                            : "No information available for this test.",
-                        style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                        textAlign: TextAlign.center,
-                      ),
-                      if (!_isOfflineMode) ...[
-                        const SizedBox(height: 24),
-                        ElevatedButton.icon(
-                          onPressed: _refreshTestData,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
-              )
-              : RefreshIndicator(
-                onRefresh: _refreshTestData,
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: infos.length,
-                  itemBuilder: (context, index) {
-                    final info = infos[index];
-                    final Map<String, dynamic> d = info['extraData'] ?? {};
-
-                    return _TestInfoCard(data: d, apiBaseUrl: apiBaseUrl);
-                  },
-                ),
+                  if (_topMessageAction != null &&
+                      _topMessageActionLabel != null)
+                    TextButton(
+                      onPressed: () {
+                        _topMessageAction?.call();
+                        setState(() {
+                          topMessage = null;
+                          _topMessageAction = null;
+                          _topMessageActionLabel = null;
+                        });
+                        _messageTimer?.cancel();
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                      ),
+                      child: Text(
+                        _topMessageActionLabel!,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                ],
               ),
+            ),
+          Expanded(
+            child:
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : infos.isEmpty
+                    ? _buildEmptyState()
+                    : RefreshIndicator(
+                      onRefresh: _refreshTestData,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: infos.length,
+                        itemBuilder: (context, index) {
+                          final info = infos[index];
+                          final Map<String, dynamic> d =
+                              info['extraData'] ?? {};
+                          return _TestInfoCard(data: d, apiBaseUrl: apiBaseUrl);
+                        },
+                      ),
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.info_outline, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              "No test infos available",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _isOfflineMode
+                  ? "This test hasn't been cached yet.\nPlease connect to the internet to view."
+                  : "No information available for this test.",
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-// Rest of the _TestInfoCard class remains the same
+// _TestInfoCard class remains the same
 class _TestInfoCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final String apiBaseUrl;

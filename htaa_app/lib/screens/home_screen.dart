@@ -33,6 +33,10 @@ class HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
+  // Top message state
+  String? topMessage;
+  Color? topMessageColor;
+
   // Cache configuration
   static const String _cacheBoxName = 'categoriesBox';
   static const String _categoriesCacheKey = 'categories';
@@ -58,22 +62,10 @@ class HomeScreenState extends State<HomeScreen> {
 
     if (result != ConnectivityResult.none && _isOfflineMode) {
       setState(() => _isOfflineMode = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Back online!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      showTopMessage('Back online!', color: Colors.green);
     } else if (result == ConnectivityResult.none && !_isOfflineMode) {
       setState(() => _isOfflineMode = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You are offline'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      showTopMessage('You are offline', color: Colors.red);
     }
   }
 
@@ -142,32 +134,12 @@ class HomeScreenState extends State<HomeScreen> {
           _isOfflineMode = true;
           errorMessage = null;
         });
-        // Show offline mode snackbar
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.cloud_off, color: Colors.white, size: 20),
-                  const SizedBox(width: 25),
-                  Expanded(
-                    child: Text(
-                      'Using cached data.\n${_getCacheAgeMessage()}',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.orange[700],
-              duration: const Duration(seconds: 3),
-              action: SnackBarAction(
-                label: 'Retry',
-                textColor: Colors.white,
-                onPressed: fetchCategories,
-              ),
-            ),
-          );
-        }
+
+        // Show top message instead of overlay
+        showTopMessage(
+          'You are offline. Data cannot be refreshed.',
+          color: Colors.red,
+        );
       } else {
         setState(() {
           errorMessage = _getErrorMessage(e);
@@ -175,19 +147,6 @@ class HomeScreenState extends State<HomeScreen> {
           _isOfflineMode = false;
         });
       }
-    }
-  }
-
-  String _getCacheAgeMessage() {
-    final age = _cacheService.getCacheAge(_cacheBoxName, _categoriesCacheKey);
-    if (age == null) return '';
-
-    if (age.inMinutes < 60) {
-      return 'Updated ${age.inMinutes} min ago';
-    } else if (age.inHours < 24) {
-      return 'Updated ${age.inHours} hrs ago';
-    } else {
-      return 'Updated ${age.inDays} days ago';
     }
   }
 
@@ -208,32 +167,19 @@ class HomeScreenState extends State<HomeScreen> {
   // ===== Authentication =====
   Future<void> _handleGoogleSignIn() async {
     setState(() => _isAuthenticating = true);
-
     final success = await _authService.signInWithGoogle();
-
     setState(() => _isAuthenticating = false);
 
     if (success) {
       if (mounted) {
-        setState(() {});
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Welcome, ${_authService.userName}!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
+        showTopMessage(
+          'Welcome, ${_authService.userName}!',
+          color: Colors.green,
         );
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sign in cancelled or failed'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        showTopMessage('Sign in cancelled or failed', color: Colors.red);
       }
     }
   }
@@ -241,14 +187,7 @@ class HomeScreenState extends State<HomeScreen> {
   Future<void> _handleSignOut() async {
     await _authService.signOut();
     setState(() {});
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Signed out successfully'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
+    showTopMessage('Signed out successfully', color: Colors.grey[800]!);
   }
 
   // ===== Search =====
@@ -256,6 +195,18 @@ class HomeScreenState extends State<HomeScreen> {
     FocusScope.of(context).unfocus();
     setState(() {
       searchQuery = _searchController.text.trim();
+    });
+  }
+
+  // ===== Top message (non-overlay) =====
+  void showTopMessage(String message, {Color color = Colors.black87}) {
+    setState(() {
+      topMessage = message;
+      topMessageColor = color;
+    });
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => topMessage = null);
     });
   }
 
@@ -275,17 +226,9 @@ class HomeScreenState extends State<HomeScreen> {
               width: 32,
               height: 32,
               fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return const SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return _buildInitialsAvatar(userName);
-              },
+              errorBuilder:
+                  (context, error, stackTrace) =>
+                      _buildInitialsAvatar(userName),
             ),
           ),
         );
@@ -314,7 +257,6 @@ class HomeScreenState extends State<HomeScreen> {
 
   String _getInitials(String name) {
     if (name.isEmpty) return 'U';
-
     final parts = name.trim().split(' ');
     if (parts.length >= 2) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
@@ -338,7 +280,6 @@ class HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         shadowColor: Colors.transparent,
-        surfaceTintColor: Colors.white,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -371,8 +312,6 @@ class HomeScreenState extends State<HomeScreen> {
                     await _handleGoogleSignIn();
                   } else if (value == 'logout') {
                     await _handleSignOut();
-                  } else if (value == 'refresh') {
-                    await fetchCategories();
                   }
                 },
                 itemBuilder: (context) {
@@ -429,209 +368,211 @@ class HomeScreenState extends State<HomeScreen> {
                       ),
                     ]);
                   }
-
-                  // Add refresh option if offline
-                  if (_isOfflineMode) {
-                    items.addAll([
-                      const PopupMenuDivider(),
-                      const PopupMenuItem<String>(
-                        value: 'refresh',
-                        child: Row(
-                          children: [
-                            Icon(Icons.refresh, size: 20),
-                            SizedBox(width: 12),
-                            Text('Refresh data'),
-                          ],
-                        ),
-                      ),
-                    ]);
-                  }
-
                   return items;
                 },
               ),
           const SizedBox(width: 10),
         ],
       ),
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: Padding(
-          padding: const EdgeInsets.all(10.0),
-          child:
-              isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : errorMessage != null
-                  ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.red[300],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton.icon(
-                          onPressed: fetchCategories,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
+      body: Column(
+        children: [
+          if (topMessage != null)
+            Container(
+              width: double.infinity,
+              color: topMessageColor,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              child: Text(
+                topMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
+            ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => FocusScope.of(context).unfocus(),
+              child: Padding(
+                padding: const EdgeInsets.all(10.0),
+                child:
+                    isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : errorMessage != null
+                        ? /* your error view */ Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 64,
+                                color: Colors.red[300],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 16),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  )
-                  : Column(
-                    children: [
-                      // Search Bar
-                      SizedBox(
-                        height: 50,
-                        child: TextField(
-                          controller: _searchController,
-                          focusNode: _searchFocusNode,
-                          decoration: InputDecoration(
-                            hintText: 'Search for categories...',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon:
-                                searchQuery.isNotEmpty
-                                    ? IconButton(
-                                      icon: const Icon(Icons.clear),
-                                      onPressed: () {
-                                        setState(() {
-                                          searchQuery = '';
-                                          _searchController.clear();
-                                        });
-                                      },
-                                    )
-                                    : null,
-                            filled: true,
-                            fillColor: Colors.grey[100],
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(25.0),
-                              borderSide: const BorderSide(
-                                color: Colors.grey,
-                                width: 1.5,
+                        )
+                        : /* your main content */ Column(
+                          children: [
+                            // Search Bar
+                            SizedBox(
+                              height: 50,
+                              child: TextField(
+                                controller: _searchController,
+                                focusNode: _searchFocusNode,
+                                decoration: InputDecoration(
+                                  hintText: 'Search for categories...',
+                                  prefixIcon: const Icon(Icons.search),
+                                  suffixIcon:
+                                      searchQuery.isNotEmpty
+                                          ? IconButton(
+                                            icon: const Icon(Icons.clear),
+                                            onPressed: () {
+                                              setState(() {
+                                                searchQuery = '';
+                                                _searchController.clear();
+                                              });
+                                            },
+                                          )
+                                          : null,
+                                  filled: true,
+                                  fillColor: Colors.grey[100],
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(25.0),
+                                    borderSide: const BorderSide(
+                                      color: Colors.grey,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(25.0),
+                                    borderSide: const BorderSide(
+                                      color: Colors.blue,
+                                      width: 2.0,
+                                    ),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 12.0,
+                                    horizontal: 20.0,
+                                  ),
+                                ),
+                                onChanged: (query) {
+                                  setState(() => searchQuery = query);
+                                },
                               ),
                             ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(25.0),
-                              borderSide: const BorderSide(
-                                color: Colors.blue,
-                                width: 2.0,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 12.0,
-                              horizontal: 20.0,
-                            ),
-                          ),
-                          onChanged: (query) {
-                            setState(() => searchQuery = query);
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      // Category List
-                      Expanded(
-                        child:
-                            filteredCategories.isEmpty
-                                ? const Center(
-                                  child: Text('No categories found.'),
-                                )
-                                : RefreshIndicator(
-                                  onRefresh: fetchCategories,
-                                  child: ListView.builder(
-                                    itemCount: filteredCategories.length,
-                                    itemBuilder: (context, index) {
-                                      final category =
-                                          filteredCategories[index];
-                                      final categoryName = category['name'];
-                                      final categoryId = category['id'];
+                            const SizedBox(height: 10),
+                            // Category List
+                            Expanded(
+                              child:
+                                  filteredCategories.isEmpty
+                                      ? const Center(
+                                        child: Text('No categories found.'),
+                                      )
+                                      : RefreshIndicator(
+                                        onRefresh: fetchCategories,
+                                        child: ListView.builder(
+                                          itemCount: filteredCategories.length,
+                                          itemBuilder: (context, index) {
+                                            final category =
+                                                filteredCategories[index];
+                                            final categoryName =
+                                                category['name'];
+                                            final categoryId = category['id'];
 
-                                      return Center(
-                                        child: LayoutBuilder(
-                                          builder: (context, constraints) {
-                                            return SizedBox(
-                                              width: constraints.maxWidth * 0.6,
-                                              child: Card(
-                                                color: Colors.white,
-                                                elevation: 3,
-                                                margin:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 8.0,
-                                                    ),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                child: InkWell(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  onTap: () {
-                                                    if (categoryName ==
-                                                        'FORM') {
-                                                      Navigator.push(
-                                                        context,
-                                                        MaterialPageRoute(
-                                                          builder:
-                                                              (context) =>
-                                                                  const FixFormScreen(),
-                                                        ),
-                                                      );
-                                                    } else {
-                                                      Navigator.push(
-                                                        context,
-                                                        MaterialPageRoute(
-                                                          builder:
-                                                              (
-                                                                context,
-                                                              ) => CategoryScreen(
-                                                                categoryName:
-                                                                    categoryName,
-                                                                categoryId:
-                                                                    categoryId,
+                                            return Center(
+                                              child: LayoutBuilder(
+                                                builder: (
+                                                  context,
+                                                  constraints,
+                                                ) {
+                                                  return SizedBox(
+                                                    width:
+                                                        constraints.maxWidth *
+                                                        0.6,
+                                                    child: Card(
+                                                      color: Colors.white,
+                                                      elevation: 3,
+                                                      margin:
+                                                          const EdgeInsets.symmetric(
+                                                            vertical: 8.0,
+                                                          ),
+                                                      shape: RoundedRectangleBorder(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              12,
+                                                            ),
+                                                      ),
+                                                      child: InkWell(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              12,
+                                                            ),
+                                                        onTap: () {
+                                                          if (categoryName ==
+                                                              'FORM') {
+                                                            Navigator.push(
+                                                              context,
+                                                              MaterialPageRoute(
+                                                                builder:
+                                                                    (context) =>
+                                                                        const FixFormScreen(),
                                                               ),
+                                                            );
+                                                          } else {
+                                                            Navigator.push(
+                                                              context,
+                                                              MaterialPageRoute(
+                                                                builder:
+                                                                    (
+                                                                      context,
+                                                                    ) => CategoryScreen(
+                                                                      categoryName:
+                                                                          categoryName,
+                                                                      categoryId:
+                                                                          categoryId,
+                                                                    ),
+                                                              ),
+                                                            );
+                                                          }
+                                                        },
+                                                        child: Container(
+                                                          height: 80,
+                                                          alignment:
+                                                              Alignment.center,
+                                                          child: Text(
+                                                            categoryName,
+                                                            textAlign:
+                                                                TextAlign
+                                                                    .center,
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 16,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
+                                                          ),
                                                         ),
-                                                      );
-                                                    }
-                                                  },
-                                                  child: Container(
-                                                    height: 80,
-                                                    alignment: Alignment.center,
-                                                    child: Text(
-                                                      categoryName,
-                                                      textAlign:
-                                                          TextAlign.center,
-                                                      style: const TextStyle(
-                                                        fontSize: 16,
-                                                        fontWeight:
-                                                            FontWeight.w600,
                                                       ),
                                                     ),
-                                                  ),
-                                                ),
+                                                  );
+                                                },
                                               ),
                                             );
                                           },
                                         ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                      ),
-                    ],
-                  ),
-        ),
+                                      ),
+                            ),
+                          ],
+                        ),
+              ),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomAppBar(
         height: 60,

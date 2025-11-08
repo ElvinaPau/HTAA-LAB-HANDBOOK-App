@@ -36,6 +36,10 @@ class _CategoryScreenState extends State<CategoryScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  // Top message state
+  String? topMessage;
+  Color? topMessageColor;
+
   // Cache configuration
   static const String _cacheBoxName = 'testsBox';
   String get _testsCacheKey =>
@@ -68,10 +72,10 @@ class _CategoryScreenState extends State<CategoryScreen> {
 
     if (result != ConnectivityResult.none && _isOfflineMode) {
       setState(() => _isOfflineMode = false);
-      _showSnackBar('Back online!', color: Colors.green);
+      showTopMessage('Back online!', color: Colors.green);
     } else if (result == ConnectivityResult.none && !_isOfflineMode) {
       setState(() => _isOfflineMode = true);
-      _showSnackBar('You are offline', color: Colors.orange);
+      showTopMessage('You are offline', color: Colors.red);
     }
   }
 
@@ -81,6 +85,17 @@ class _CategoryScreenState extends State<CategoryScreen> {
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void showTopMessage(String message, {Color color = Colors.blue}) {
+    setState(() {
+      topMessage = message;
+      topMessageColor = color;
+    });
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => topMessage = null);
+    });
   }
 
   String _buildApiUrl() {
@@ -117,13 +132,14 @@ class _CategoryScreenState extends State<CategoryScreen> {
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
 
-        // Save to cache with max age
         await _cacheService.saveData(_cacheBoxName, _testsCacheKey, data);
 
         final mappedData =
-            data.map<Map<String, dynamic>>((item) {
-              return Map<String, dynamic>.from(item);
-            }).toList();
+            data
+                .map<Map<String, dynamic>>(
+                  (item) => Map<String, dynamic>.from(item),
+                )
+                .toList();
 
         setState(() {
           tests = mappedData;
@@ -149,9 +165,11 @@ class _CategoryScreenState extends State<CategoryScreen> {
 
     if (cachedData != null && cachedData is List) {
       final mappedData =
-          cachedData.map<Map<String, dynamic>>((item) {
-            return Map<String, dynamic>.from(item);
-          }).toList();
+          cachedData
+              .map<Map<String, dynamic>>(
+                (item) => Map<String, dynamic>.from(item),
+              )
+              .toList();
 
       setState(() {
         tests = mappedData;
@@ -161,9 +179,9 @@ class _CategoryScreenState extends State<CategoryScreen> {
         errorMessage = null;
       });
 
-      _showSnackBar(
-        'Using cached data.\n${_getCacheAgeMessage()}',
-        color: Colors.orange,
+      showTopMessage(
+        'You are offline. Data cannot be refreshed.',
+        color: Colors.red,
       );
     } else {
       setState(() {
@@ -171,19 +189,9 @@ class _CategoryScreenState extends State<CategoryScreen> {
         filteredTests = [];
         isLoading = false;
         _isOfflineMode = false;
-        errorMessage =
-            'No cached data available. Please check your connection.';
+        errorMessage = 'No data available. Please check your connection.';
       });
     }
-  }
-
-  String _getCacheAgeMessage() {
-    final age = _cacheService.getCacheAge(_cacheBoxName, _testsCacheKey);
-    if (age == null) return '';
-
-    if (age.inMinutes < 60) return 'Updated ${age.inMinutes} min ago';
-    if (age.inHours < 24) return 'Updated ${age.inHours} hrs ago';
-    return 'Updated ${age.inDays} days ago';
   }
 
   void _filterTests(String query) {
@@ -215,7 +223,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
       return;
     }
 
-    // Online: fetch full details
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -230,7 +237,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
           )
           .timeout(const Duration(seconds: 10));
 
-      Navigator.of(context).pop(); // Close loading
+      Navigator.of(context).pop();
 
       if (response.statusCode == 200) {
         final fullData =
@@ -242,7 +249,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
         await _navigateToTestInfo(testData);
       }
     } catch (_) {
-      Navigator.of(context).pop(); // Close loading
+      Navigator.of(context).pop();
       await _navigateToTestInfo(testData);
     }
   }
@@ -275,24 +282,10 @@ class _CategoryScreenState extends State<CategoryScreen> {
           curve: Curves.easeInOut,
         );
       }
-      _showSnackBar('Jumped to "$letter"');
+      showTopMessage('Jumped to "$letter"', color: Colors.blue);
     } else {
-      _showSnackBar('No tests starting with "$letter"');
+      showTopMessage('No tests starting with "$letter"', color: Colors.red);
     }
-  }
-
-  void _showSnackBar(String message, {Color color = Colors.blue}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(milliseconds: 800),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(bottom: 80, left: 16, right: 60),
-        backgroundColor: color,
-      ),
-    );
   }
 
   @override
@@ -326,16 +319,23 @@ class _CategoryScreenState extends State<CategoryScreen> {
             ],
           ],
         ),
-        actions: [
-          if (_isOfflineMode)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _fetchTests,
-              tooltip: 'Refresh data',
+      ),
+      body: Column(
+        children: [
+          if (topMessage != null)
+            Container(
+              width: double.infinity,
+              color: topMessageColor,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              child: Text(
+                topMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
             ),
+          Expanded(child: _buildBody()),
         ],
       ),
-      body: _buildBody(),
     );
   }
 
@@ -358,15 +358,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
             errorMessage!,
             style: const TextStyle(color: Colors.red, fontSize: 16),
             textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: _fetchTests,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
           ),
         ],
       ),
@@ -396,14 +387,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: _fetchTests,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-          ),
         ],
       ),
     ),
@@ -439,6 +422,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
                           onRefresh: _fetchTests,
                           child: ListView.builder(
                             controller: _scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                             itemCount: filteredTests.length,
                             itemBuilder: (context, index) {
