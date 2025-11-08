@@ -39,7 +39,7 @@ class ApiService {
       } else {
         throw Exception('Server returned status code: ${response.statusCode}');
       }
-    } on TimeoutException catch (e) {
+    } on TimeoutException {
       throw Exception(
         'Request timed out. Please check your connection and try again.',
       );
@@ -47,7 +47,7 @@ class ApiService {
       throw Exception(
         'Network error: ${e.message}. Please check your internet connection.',
       );
-    } on FormatException catch (e) {
+    } on FormatException {
       throw Exception('Invalid data format received from server');
     } catch (e) {
       if (e.toString().contains('SocketException')) {
