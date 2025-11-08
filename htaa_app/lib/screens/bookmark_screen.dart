@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:htaa_app/services/bookmark_service.dart';
+import 'package:htaa_app/services/cache_service.dart';
 import 'package:htaa_app/screens/test_info_screen.dart';
 
 class BookmarkScreen extends StatefulWidget {
@@ -11,9 +12,10 @@ class BookmarkScreen extends StatefulWidget {
 
 class _BookmarkScreenState extends State<BookmarkScreen> {
   final BookmarkService _bookmarkService = BookmarkService();
+  final CacheService _cacheService = CacheService();
   List<Map<String, dynamic>> _bookmarks = [];
   bool _isLoading = true;
-  bool _hasChanges = false; // Track if any bookmarks were modified
+  bool _hasChanges = false;
 
   @override
   void initState() {
@@ -28,6 +30,83 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
       _bookmarks = bookmarks;
       _isLoading = false;
     });
+  }
+
+  /// Merge bookmark data with cached test details (includes local image paths)
+  Map<String, dynamic> _getMergedTestData(Map<String, dynamic> bookmark) {
+    final testId = bookmark['test_id'];
+
+    // Try to get cached test details (which has local image paths)
+    var cachedData = _cacheService.getData(
+      'testDetailsBox',
+      'test_details_$testId',
+      defaultValue: null,
+      maxAge: null,
+    );
+
+    // If we have cached data, merge it with bookmark data
+    if (cachedData != null && cachedData is Map) {
+      final merged = Map<String, dynamic>.from(cachedData);
+
+      // Fix any relative image paths in the cached data
+      _fixImagePathsInData(merged);
+
+      // Preserve bookmark-specific fields
+      merged['category_name'] = bookmark['category_name'];
+      merged['category_id'] = bookmark['category_id'];
+
+      print('✅ Using cached data with fixed image paths for test $testId');
+      return merged;
+    }
+
+    // Fallback to bookmark data
+    print('⚠️ No cache found, using bookmark data for test $testId');
+    _fixImagePathsInData(bookmark);
+    return bookmark;
+  }
+
+  /// Fix relative image paths by converting them to network URLs
+  void _fixImagePathsInData(Map<String, dynamic> data) {
+    final infos = data['infos'];
+    if (infos == null || infos is! List) return;
+
+    for (var info in infos) {
+      if (info is Map && info.containsKey('extraData')) {
+        final extraData = info['extraData'];
+        if (extraData is Map && extraData.containsKey('image')) {
+          dynamic imageData = extraData['image'];
+          String? imagePath;
+
+          // Extract current image path
+          if (imageData is String) {
+            imagePath = imageData;
+          } else if (imageData is Map && imageData['url'] != null) {
+            imagePath = imageData['url'].toString();
+          }
+
+          // Check if it's a relative path that needs fixing
+          if (imagePath != null &&
+              imagePath.startsWith('/') &&
+              !imagePath.contains('cached_images') &&
+              !imagePath.startsWith('/var/') &&
+              !imagePath.startsWith('/data/') &&
+              !imagePath.startsWith('/private/')) {
+            // It's a relative path like /imgUploads/..., needs network URL
+            final networkUrl =
+                'http://10.167.177.92:5001$imagePath'; // Use your IP
+            print(
+              '🔧 Fixed relative path in bookmark: $imagePath → $networkUrl',
+            );
+
+            if (imageData is String) {
+              extraData['image'] = networkUrl;
+            } else if (imageData is Map) {
+              extraData['image']['url'] = networkUrl;
+            }
+          }
+        }
+      }
+    }
   }
 
   Future<void> _removeBookmark(int testId, String testName) async {
@@ -55,7 +134,7 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
 
     if (confirmed == true) {
       await _bookmarkService.removeBookmark(testId);
-      _hasChanges = true; // Mark that changes were made
+      _hasChanges = true;
       _loadBookmarks();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -95,7 +174,7 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
 
     if (confirmed == true) {
       await _bookmarkService.clearAllBookmarks();
-      _hasChanges = true; // Mark that changes were made
+      _hasChanges = true;
       _loadBookmarks();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -111,12 +190,10 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // Use PopScope to intercept back button
       canPop: true,
       onPopInvoked: (didPop) {
         if (didPop && _hasChanges) {
-          // Return true to indicate changes were made
-          // This won't work with onPopInvoked, need to handle differently
+          // Changes are tracked via _hasChanges flag
         }
       },
       child: Scaffold(
@@ -128,9 +205,7 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
           centerTitle: true,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios),
-            onPressed:
-                () =>
-                    Navigator.pop(context, _hasChanges), // Return change status
+            onPressed: () => Navigator.pop(context, _hasChanges),
           ),
           actions: [
             if (_bookmarks.isNotEmpty)
@@ -198,11 +273,14 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () async {
-              // Navigate to TestInfoScreen
+              // Get merged data (cached data with local images + bookmark info)
+              final mergedData = _getMergedTestData(bookmark);
+
+              // Navigate to TestInfoScreen with merged data
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => TestInfoScreen(tests: bookmark),
+                  builder: (context) => TestInfoScreen(tests: mergedData),
                 ),
               );
               // Refresh bookmarks when returning

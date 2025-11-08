@@ -13,6 +13,7 @@ import 'package:htaa_app/services/bookmark_service.dart';
 import 'package:htaa_app/services/cache_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
+import 'package:htaa_app/widgets/cached_image_widget.dart';
 
 class TestInfoScreen extends StatefulWidget {
   final Map<String, dynamic> tests;
@@ -130,26 +131,75 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     }
   }
 
+  Future<Map<String, dynamic>> _fixImagePaths(Map<String, dynamic> data) async {
+    final infos = data['infos'];
+    if (infos == null || infos is! List) return data;
+
+    bool hasChanges = false;
+
+    for (var info in infos) {
+      if (info is Map && info.containsKey('extraData')) {
+        final extraData = info['extraData'];
+        if (extraData is Map && extraData.containsKey('image')) {
+          dynamic imageData = extraData['image'];
+          String? imagePath;
+
+          // Extract current image path
+          if (imageData is String) {
+            imagePath = imageData;
+          } else if (imageData is Map && imageData['url'] != null) {
+            imagePath = imageData['url'].toString();
+          }
+
+          // Check if it's a relative path that needs fixing
+          if (imagePath != null &&
+              imagePath.startsWith('/') &&
+              !imagePath.contains('cached_images')) {
+            // It's a relative path like /imgUploads/..., convert to network URL
+            final networkUrl = '${getBaseUrl()}$imagePath';
+            print('🔧 Fixing relative path: $imagePath → $networkUrl');
+
+            if (imageData is String) {
+              extraData['image'] = networkUrl;
+            } else if (imageData is Map) {
+              extraData['image']['url'] = networkUrl;
+            }
+            hasChanges = true;
+          }
+        }
+      }
+    }
+
+    // If we made changes, save back to cache
+    if (hasChanges) {
+      await _cacheService.saveData(_cacheBoxName, _testDetailsCacheKey, data);
+      print('✅ Fixed and saved image paths to cache');
+    }
+
+    return data;
+  }
+
   Future<void> _initializeTestData() async {
     setState(() => _isLoading = true);
 
     final infos = widget.tests['infos'];
 
-    // If we already have complete data, cache it and use it
+    // If we already have complete data, fix image paths, cache it and use it
     if (infos != null && infos is List && infos.isNotEmpty) {
+      final fixedData = await _fixImagePaths(widget.tests);
       await _cacheService.saveData(
         _cacheBoxName,
         _testDetailsCacheKey,
-        widget.tests,
+        fixedData,
       );
       setState(() {
-        _cachedTestData = widget.tests;
+        _cachedTestData = fixedData;
         _isOfflineMode = false;
         _isLoading = false;
       });
     } else {
       // Try to load from cache first
-      final cachedData = _cacheService.getData(
+      var cachedData = _cacheService.getData(
         _cacheBoxName,
         _testDetailsCacheKey,
         defaultValue: null,
@@ -157,8 +207,13 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
       );
 
       if (cachedData != null && cachedData is Map) {
+        // Fix any relative paths in cached data
+        cachedData = await _fixImagePaths(
+          Map<String, dynamic>.from(cachedData),
+        );
+
         setState(() {
-          _cachedTestData = Map<String, dynamic>.from(cachedData);
+          _cachedTestData = cachedData as Map<String, dynamic>;
           _isOfflineMode = true;
           _isLoading = false;
         });
@@ -494,7 +549,15 @@ class _TestInfoCard extends StatelessWidget {
     if (image == null) return null;
 
     String? result;
+
     if (image is String) {
+      // Check if it's already a local file path (from cache)
+      if (image.startsWith('/')) {
+        print('📦 Using cached local image: $image');
+        return image;
+      }
+
+      // Otherwise, fix network URL
       if (image.contains('localhost:5001')) {
         result = image.replaceAll('http://localhost:5001', apiBaseUrl);
       } else if (image.startsWith('http')) {
@@ -502,16 +565,45 @@ class _TestInfoCard extends StatelessWidget {
       } else {
         result = '$apiBaseUrl$image';
       }
-    } else if (image is Map && image['url'] != null) {
-      final String url = image['url'].toString();
-      if (url.contains('localhost:5001')) {
-        result = url.replaceAll('http://localhost:5001', apiBaseUrl);
-      } else if (url.startsWith('http')) {
-        result = url;
-      } else {
-        result = '$apiBaseUrl$url';
+    } else if (image is Map) {
+      // Check for imageUrl (used in infos)
+      if (image['imageUrl'] != null) {
+        final imageUrl = image['imageUrl'].toString();
+
+        // Check if it's a cached local path
+        if (imageUrl.startsWith('/')) {
+          print('📦 Using cached local image from map: $imageUrl');
+          return imageUrl;
+        }
+
+        // Fix network URL
+        if (imageUrl.contains('localhost:5001')) {
+          result = imageUrl.replaceAll('http://localhost:5001', apiBaseUrl);
+        } else if (imageUrl.startsWith('http')) {
+          result = imageUrl;
+        } else {
+          result = '$apiBaseUrl$imageUrl';
+        }
+      }
+      // Fallback to 'url' key
+      else if (image['url'] != null) {
+        final String url = image['url'].toString();
+
+        if (url.startsWith('/')) {
+          print('📦 Using cached local image from url: $url');
+          return url;
+        }
+
+        if (url.contains('localhost:5001')) {
+          result = url.replaceAll('http://localhost:5001', apiBaseUrl);
+        } else if (url.startsWith('http')) {
+          result = url;
+        } else {
+          result = '$apiBaseUrl$url';
+        }
       }
     }
+
     return result;
   }
 
@@ -759,6 +851,12 @@ class _TestInfoCard extends StatelessWidget {
   Widget _buildContainer() {
     final String? imageSrc = _getImageSrc();
     if (imageSrc == null) return const SizedBox.shrink();
+
+    // Check if using local cache
+    final bool isLocalImage = imageSrc.startsWith('/');
+    print('📦 Container image source: $imageSrc');
+    print('📦 Is local cached image: $isLocalImage');
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Column(
@@ -769,38 +867,65 @@ class _TestInfoCard extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          Image.network(
-            imageSrc,
+          CachedImageWidget(
+            imagePath: imageSrc,
             width: 250,
             fit: BoxFit.contain,
-            errorBuilder:
-                (context, error, stackTrace) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            placeholder: SizedBox(
+              width: 250,
+              height: 100,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.broken_image, color: Colors.red, size: 50),
-                    const SizedBox(height: 4),
+                    CircularProgressIndicator(),
+                    SizedBox(height: 8),
                     Text(
-                      'Failed to load image',
-                      style: TextStyle(color: Colors.red[700], fontSize: 12),
+                      isLocalImage
+                          ? 'Loading cached image...'
+                          : 'Downloading...',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                   ],
                 ),
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return SizedBox(
-                width: 250,
-                height: 100,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    value:
-                        loadingProgress.expectedTotalBytes != null
-                            ? loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!
-                            : null,
+              ),
+            ),
+            errorWidget: Container(
+              width: 250,
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[400]!),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isLocalImage ? Icons.image_not_supported : Icons.cloud_off,
+                    color: Colors.grey[600],
+                    size: 40,
                   ),
-                ),
-              );
-            },
+                  SizedBox(height: 8),
+                  Text(
+                    isLocalImage
+                        ? 'Cached image unavailable'
+                        : 'Image unavailable offline',
+                    style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (!isLocalImage)
+                    Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Will download when online',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 10),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
