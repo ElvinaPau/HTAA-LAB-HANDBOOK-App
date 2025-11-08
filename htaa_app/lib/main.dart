@@ -1,9 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'screens/home_screen.dart';
 
 final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized(); // Make sure Flutter is ready
+
+  // Initialize Hive
+  await Hive.initFlutter();
+
+  // Open a box (like a local database)
+  await Hive.openBox('categoriesBox');
+  await Hive.openBox('testsBox');
+  await Hive.openBox('testDetailsBox');
+
   runApp(const HtaaApp());
 }
 

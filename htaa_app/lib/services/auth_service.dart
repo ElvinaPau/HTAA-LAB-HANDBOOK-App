@@ -1,7 +1,9 @@
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io' show Platform;
+import '../api_config.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -66,10 +68,8 @@ class AuthService {
   }
 
   // Sign in with Google
-  // Sign in with Google
   Future<bool> signInWithGoogle() async {
     try {
-      // iOS Simulator fix: Add small delay to ensure view controller is ready
       if (Platform.isIOS) {
         await Future.delayed(const Duration(milliseconds: 1000));
         await _googleSignIn.disconnect();
@@ -78,7 +78,6 @@ class AuthService {
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
 
       if (account != null) {
-        // Add delay after user chooses Google account
         await Future.delayed(const Duration(milliseconds: 1000));
 
         _currentUser = account;
@@ -90,7 +89,25 @@ class AuthService {
         print('  email: ${account.email}');
         print('  id: ${account.id}');
         print('  photoUrl: ${account.photoUrl}');
-        print('  serverAuthCode: ${account.serverAuthCode}');
+
+        //Send user to backend API
+        final url = '${getBaseUrl()}/api/users';
+        final response = await http.post(
+          Uri.parse(url),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'google_id': account.id,
+            'name': account.displayName ?? '',
+            'email': account.email,
+            'photo_url': account.photoUrl ?? '',
+          }),
+        );
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          print('User successfully stored in backend.');
+        } else {
+          print('Failed to save user to backend: ${response.body}');
+        }
 
         return true;
       }

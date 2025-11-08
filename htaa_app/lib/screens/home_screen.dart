@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:htaa_app/screens/bookmark_screen.dart';
 import 'package:htaa_app/screens/contact_screen.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '/api_config.dart';
 import 'package:htaa_app/screens/category_screen.dart';
 import 'package:htaa_app/screens/fix_form_screen.dart';
 import 'package:htaa_app/services/auth_service.dart';
+import 'package:htaa_app/services/api_service.dart';
+import 'package:htaa_app/services/cache_service.dart';
+import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:htaa_app/services/connectivity_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,15 +20,25 @@ class HomeScreen extends StatefulWidget {
 class HomeScreenState extends State<HomeScreen> {
   // ===== State variables =====
   final AuthService _authService = AuthService();
+  final ApiService _apiService = ApiService();
+  final CacheService _cacheService = CacheService();
 
   List<Map<String, dynamic>> allCategories = [];
   String searchQuery = '';
   bool isLoading = true;
   String? errorMessage;
   bool _isAuthenticating = false;
+  bool _isOfflineMode = false;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+
+  // Cache configuration
+  static const String _cacheBoxName = 'categoriesBox';
+  static const String _categoriesCacheKey = 'categories';
+
+  // ===== Connectivity =====
+  late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
   // ===== Lifecycle =====
   @override
@@ -34,6 +46,43 @@ class HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initializeAuth();
     fetchCategories();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = ConnectivityService().connectivityStream.listen(
+      _handleConnectivityChange,
+    );
+  }
+
+  void _handleConnectivityChange(ConnectivityResult result) {
+    if (!mounted) return;
+
+    if (result != ConnectivityResult.none && _isOfflineMode) {
+      setState(() => _isOfflineMode = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Back online!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else if (result == ConnectivityResult.none && !_isOfflineMode) {
+      setState(() => _isOfflineMode = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You are offline'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeAuth() async {
@@ -41,36 +90,118 @@ class HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  // ===== Fetch categories =====
+  // ===== Fetch categories with caching =====
   Future<void> fetchCategories() async {
-    final url = '${getBaseUrl()}/api/categories';
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+      _isOfflineMode = false;
+    });
 
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        data.sort((a, b) => (a['position'] ?? 0).compareTo(b['position'] ?? 0));
+      // Try to fetch from API
+      final data = await _apiService.fetchData('categories');
 
+      // Sort by position
+      data.sort((a, b) => (a['position'] ?? 0).compareTo(b['position'] ?? 0));
+
+      final categories = [
+        ...data.map<Map<String, dynamic>>(
+          (item) => {'id': item['id'], 'name': item['name']},
+        ),
+        {'id': null, 'name': 'FORM'},
+      ];
+
+      // Save to cache
+      await _cacheService.saveData(
+        _cacheBoxName,
+        _categoriesCacheKey,
+        categories,
+      );
+
+      setState(() {
+        allCategories = categories;
+        isLoading = false;
+        _isOfflineMode = false;
+      });
+    } catch (e) {
+      // Try to load from cache
+      final cachedData = _cacheService.getData(
+        _cacheBoxName,
+        _categoriesCacheKey,
+        defaultValue: null,
+        maxAge: null,
+      );
+
+      if (cachedData != null && cachedData is List) {
         setState(() {
-          allCategories = [
-            ...data.map<Map<String, dynamic>>(
-              (item) => {'id': item['id'], 'name': item['name']},
-            ),
-            {'id': null, 'name': 'FORM'},
-          ];
+          allCategories = List<Map<String, dynamic>>.from(
+            cachedData.map((item) => Map<String, dynamic>.from(item)),
+          );
           isLoading = false;
+          _isOfflineMode = true;
+          errorMessage = null;
         });
+        // Show offline mode snackbar
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.cloud_off, color: Colors.white, size: 20),
+                  const SizedBox(width: 25),
+                  Expanded(
+                    child: Text(
+                      'Using cached data.\n${_getCacheAgeMessage()}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.orange[700],
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: fetchCategories,
+              ),
+            ),
+          );
+        }
       } else {
         setState(() {
-          errorMessage = 'Failed to load categories';
+          errorMessage = _getErrorMessage(e);
           isLoading = false;
+          _isOfflineMode = false;
         });
       }
-    } catch (e) {
-      setState(() {
-        errorMessage = 'Error: $e';
-        isLoading = false;
-      });
+    }
+  }
+
+  String _getCacheAgeMessage() {
+    final age = _cacheService.getCacheAge(_cacheBoxName, _categoriesCacheKey);
+    if (age == null) return '';
+
+    if (age.inMinutes < 60) {
+      return 'Updated ${age.inMinutes} min ago';
+    } else if (age.inHours < 24) {
+      return 'Updated ${age.inHours} hrs ago';
+    } else {
+      return 'Updated ${age.inDays} days ago';
+    }
+  }
+
+  String _getErrorMessage(dynamic error) {
+    final errorStr = error.toString();
+    if (errorStr.contains('timeout') || errorStr.contains('Timeout')) {
+      return 'Connection timeout. Please check your internet.';
+    } else if (errorStr.contains('SocketException') ||
+        errorStr.contains('Unable to connect')) {
+      return 'No internet connection. Please try again.';
+    } else if (errorStr.contains('Server error')) {
+      return 'Server error. Please try again later.';
+    } else {
+      return 'Failed to load categories. Please try again.';
     }
   }
 
@@ -165,7 +296,6 @@ class HomeScreenState extends State<HomeScreen> {
     return const Icon(Icons.person, size: 28);
   }
 
-  // Helper to build avatar with initials
   Widget _buildInitialsAvatar(String name) {
     final initials = _getInitials(name);
     return CircleAvatar(
@@ -182,7 +312,6 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Get initials from name
   String _getInitials(String name) {
     if (name.isEmpty) return 'U';
 
@@ -210,9 +339,18 @@ class HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.white,
         shadowColor: Colors.transparent,
         surfaceTintColor: Colors.white,
-        title: const Text(
-          "HTAA LAB HANDBOOK",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "HTAA LAB HANDBOOK",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+            ),
+            if (_isOfflineMode) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
+            ],
+          ],
         ),
         centerTitle: true,
         actions: [
@@ -233,11 +371,15 @@ class HomeScreenState extends State<HomeScreen> {
                     await _handleGoogleSignIn();
                   } else if (value == 'logout') {
                     await _handleSignOut();
+                  } else if (value == 'refresh') {
+                    await fetchCategories();
                   }
                 },
                 itemBuilder: (context) {
+                  final items = <PopupMenuEntry<String>>[];
+
                   if (!_authService.isLoggedIn) {
-                    return [
+                    items.add(
                       const PopupMenuItem<String>(
                         value: 'login',
                         child: Row(
@@ -248,9 +390,9 @@ class HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
-                    ];
+                    );
                   } else {
-                    return [
+                    items.addAll([
                       PopupMenuItem<String>(
                         enabled: false,
                         child: Column(
@@ -285,8 +427,27 @@ class HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
-                    ];
+                    ]);
                   }
+
+                  // Add refresh option if offline
+                  if (_isOfflineMode) {
+                    items.addAll([
+                      const PopupMenuDivider(),
+                      const PopupMenuItem<String>(
+                        value: 'refresh',
+                        child: Row(
+                          children: [
+                            Icon(Icons.refresh, size: 20),
+                            SizedBox(width: 12),
+                            Text('Refresh data'),
+                          ],
+                        ),
+                      ),
+                    ]);
+                  }
+
+                  return items;
                 },
               ),
           const SizedBox(width: 10),
@@ -300,7 +461,36 @@ class HomeScreenState extends State<HomeScreen> {
               isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : errorMessage != null
-                  ? Center(child: Text(errorMessage!))
+                  ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: Colors.red[300],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: fetchCategories,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
                   : Column(
                     children: [
                       // Search Bar
@@ -358,79 +548,85 @@ class HomeScreenState extends State<HomeScreen> {
                                 ? const Center(
                                   child: Text('No categories found.'),
                                 )
-                                : ListView.builder(
-                                  itemCount: filteredCategories.length,
-                                  itemBuilder: (context, index) {
-                                    final category = filteredCategories[index];
-                                    final categoryName = category['name'];
-                                    final categoryId = category['id'];
+                                : RefreshIndicator(
+                                  onRefresh: fetchCategories,
+                                  child: ListView.builder(
+                                    itemCount: filteredCategories.length,
+                                    itemBuilder: (context, index) {
+                                      final category =
+                                          filteredCategories[index];
+                                      final categoryName = category['name'];
+                                      final categoryId = category['id'];
 
-                                    return Center(
-                                      child: LayoutBuilder(
-                                        builder: (context, constraints) {
-                                          return SizedBox(
-                                            width: constraints.maxWidth * 0.6,
-                                            child: Card(
-                                              color: Colors.white,
-                                              elevation: 3,
-                                              margin:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 8.0,
-                                                  ),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                              child: InkWell(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                onTap: () {
-                                                  if (categoryName == 'FORM') {
-                                                    Navigator.push(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                        builder:
-                                                            (context) =>
-                                                                const FixFormScreen(),
+                                      return Center(
+                                        child: LayoutBuilder(
+                                          builder: (context, constraints) {
+                                            return SizedBox(
+                                              width: constraints.maxWidth * 0.6,
+                                              child: Card(
+                                                color: Colors.white,
+                                                elevation: 3,
+                                                margin:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 8.0,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                child: InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  onTap: () {
+                                                    if (categoryName ==
+                                                        'FORM') {
+                                                      Navigator.push(
+                                                        context,
+                                                        MaterialPageRoute(
+                                                          builder:
+                                                              (context) =>
+                                                                  const FixFormScreen(),
+                                                        ),
+                                                      );
+                                                    } else {
+                                                      Navigator.push(
+                                                        context,
+                                                        MaterialPageRoute(
+                                                          builder:
+                                                              (
+                                                                context,
+                                                              ) => CategoryScreen(
+                                                                categoryName:
+                                                                    categoryName,
+                                                                categoryId:
+                                                                    categoryId,
+                                                              ),
+                                                        ),
+                                                      );
+                                                    }
+                                                  },
+                                                  child: Container(
+                                                    height: 80,
+                                                    alignment: Alignment.center,
+                                                    child: Text(
+                                                      categoryName,
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                      style: const TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight:
+                                                            FontWeight.w600,
                                                       ),
-                                                    );
-                                                  } else {
-                                                    Navigator.push(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                        builder:
-                                                            (
-                                                              context,
-                                                            ) => CategoryScreen(
-                                                              categoryName:
-                                                                  categoryName,
-                                                              categoryId:
-                                                                  categoryId,
-                                                            ),
-                                                      ),
-                                                    );
-                                                  }
-                                                },
-                                                child: Container(
-                                                  height: 80,
-                                                  alignment: Alignment.center,
-                                                  child: Text(
-                                                    categoryName,
-                                                    textAlign: TextAlign.center,
-                                                    style: const TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight:
-                                                          FontWeight.w600,
                                                     ),
                                                   ),
                                                 ),
                                               ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    );
-                                  },
+                                            );
+                                          },
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
                       ),
                     ],
@@ -438,19 +634,17 @@ class HomeScreenState extends State<HomeScreen> {
         ),
       ),
       bottomNavigationBar: BottomAppBar(
-        height: 60, // Reduced height from default (~80) to 60
+        height: 60,
         color: Colors.white,
         shape: const CircularNotchedRectangle(),
-        notchMargin: 6, // Reduced notch margin from 8 to 6
+        notchMargin: 6,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16.0,
-          ), // Add horizontal padding for better spacing
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               IconButton(
-                iconSize: 28, // Reduced from 35 to 28
+                iconSize: 28,
                 icon: const Icon(Icons.bookmark),
                 onPressed: () {
                   Navigator.push(
@@ -461,9 +655,9 @@ class HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
-              const SizedBox(width: 48), // Space for the FAB
+              const SizedBox(width: 48),
               IconButton(
-                iconSize: 28, // Reduced from 35 to 28
+                iconSize: 28,
                 icon: const Icon(Icons.phone),
                 onPressed: () {
                   Navigator.push(
@@ -479,8 +673,8 @@ class HomeScreenState extends State<HomeScreen> {
         ),
       ),
       floatingActionButton: SizedBox(
-        width: 60, // Reduced from 70 to 60
-        height: 60, // Reduced from 70 to 60
+        width: 60,
+        height: 60,
         child: FloatingActionButton(
           onPressed:
               () => FocusScope.of(context).requestFocus(_searchFocusNode),
@@ -489,11 +683,7 @@ class HomeScreenState extends State<HomeScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(50),
           ),
-          child: const Icon(
-            Icons.search,
-            color: Colors.white,
-            size: 28,
-          ), // Reduced from 35 to 28
+          child: const Icon(Icons.search, color: Colors.white, size: 28),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
