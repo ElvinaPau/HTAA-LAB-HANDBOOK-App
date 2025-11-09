@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:htaa_app/services/bookmark_service.dart';
 import 'package:htaa_app/services/cache_service.dart';
+import 'package:htaa_app/services/auth_service.dart';
 import 'package:htaa_app/screens/test_info_screen.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:htaa_app/services/connectivity_service.dart';
+import 'dart:async';
 
 class BookmarkScreen extends StatefulWidget {
   const BookmarkScreen({super.key});
@@ -13,23 +17,167 @@ class BookmarkScreen extends StatefulWidget {
 class _BookmarkScreenState extends State<BookmarkScreen> {
   final BookmarkService _bookmarkService = BookmarkService();
   final CacheService _cacheService = CacheService();
+  final AuthService _authService = AuthService();
+
   List<Map<String, dynamic>> _bookmarks = [];
   bool _isLoading = true;
   bool _hasChanges = false;
+  bool _showSignInBanner = true;
+  bool _isOfflineMode = false;
+  bool _isSyncing = false;
+
+  // Pending sync info
+  int _pendingAdditions = 0;
+  int _pendingDeletions = 0;
+
+  // Top message state
+  String? topMessage;
+  Color? topMessageColor;
+
+  // Connectivity
+  late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
+    _checkInitialConnectivity();
     _loadBookmarks();
+    _loadPendingSyncInfo();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = ConnectivityService().connectivityStream.listen(
+      _handleConnectivityChange,
+    );
+  }
+
+  Future<void> _checkInitialConnectivity() async {
+    final isOnline = await ConnectivityService().isOnline();
+    if (mounted) {
+      setState(() => _isOfflineMode = !isOnline);
+    }
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
+
+  void _handleConnectivityChange(ConnectivityResult result) async {
+    if (!mounted) return;
+
+    final wasOffline = _isOfflineMode;
+    final isNowOffline = result == ConnectivityResult.none;
+
+    // Update offline status
+    if (isNowOffline != wasOffline) {
+      setState(() => _isOfflineMode = isNowOffline);
+    }
+
+    // Coming back online
+    if (!isNowOffline && wasOffline) {
+      _showTopMessage('Back online! Syncing...', color: Colors.green);
+
+      // Auto-sync when coming back online
+      if (_authService.isLoggedIn) {
+        await _syncPendingActions();
+      } else {
+        // Even if not signed in, refresh bookmarks to show we're online
+        await _loadBookmarks();
+      }
+    }
+    // Going offline
+    else if (isNowOffline && !wasOffline) {
+      _showTopMessage('You are offline', color: Colors.red);
+    }
   }
 
   Future<void> _loadBookmarks() async {
     setState(() => _isLoading = true);
-    final bookmarks = await _bookmarkService.getBookmarks();
-    setState(() {
-      _bookmarks = bookmarks;
-      _isLoading = false;
-    });
+
+    try {
+      // Check connectivity first
+      final isOnline = await ConnectivityService().isOnline();
+
+      final bookmarks = await _bookmarkService.getBookmarks();
+
+      if (mounted) {
+        setState(() {
+          _bookmarks = bookmarks;
+          _isLoading = false;
+          // Don't override _isOfflineMode if we're actually offline
+          // Only set to false if we successfully loaded AND we're online
+          if (isOnline) {
+            _isOfflineMode = false;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        // Check if error is due to being offline
+        final isOnline = await ConnectivityService().isOnline();
+        setState(() {
+          _isLoading = false;
+          _isOfflineMode = !isOnline;
+        });
+
+        if (!isOnline) {
+          _showTopMessage(
+            'Offline - showing cached bookmarks',
+            color: Colors.orange,
+          );
+        } else {
+          _showTopMessage('Failed to load bookmarks', color: Colors.red);
+        }
+      }
+    }
+
+    await _loadPendingSyncInfo();
+  }
+
+  Future<void> _loadPendingSyncInfo() async {
+    if (!_authService.isLoggedIn) return;
+
+    final syncInfo = await _bookmarkService.getPendingSyncInfo();
+    if (mounted) {
+      setState(() {
+        _pendingAdditions = syncInfo['additions'] ?? 0;
+        _pendingDeletions = syncInfo['deletions'] ?? 0;
+      });
+    }
+  }
+
+  Future<void> _syncPendingActions() async {
+    if (_isSyncing) return;
+
+    setState(() => _isSyncing = true);
+
+    try {
+      // Store count before sync
+      final totalBeforeSync = _pendingAdditions + _pendingDeletions;
+
+      await _bookmarkService.syncPendingActions();
+
+      // Reload bookmarks from cloud after successful sync
+      await _loadBookmarks();
+
+      if (mounted) {
+        if (totalBeforeSync > 0) {
+          _showTopMessage(
+            'Synced $totalBeforeSync change${totalBeforeSync == 1 ? '' : 's'}',
+            color: Colors.green,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showTopMessage('Sync failed', color: Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncing = false);
+      }
+    }
   }
 
   /// Merge bookmark data with cached test details (includes local image paths)
@@ -92,8 +240,7 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
               !imagePath.startsWith('/data/') &&
               !imagePath.startsWith('/private/')) {
             // It's a relative path like /imgUploads/..., needs network URL
-            final networkUrl =
-                'http://10.167.177.92:5001$imagePath'; // Use your IP
+            final networkUrl = 'http://10.167.177.92:5001$imagePath';
             print(
               '🔧 Fixed relative path in bookmark: $imagePath → $networkUrl',
             );
@@ -133,16 +280,31 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
     );
 
     if (confirmed == true) {
-      await _bookmarkService.removeBookmark(testId);
-      _hasChanges = true;
-      _loadBookmarks();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bookmark removed'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+      final success = await _bookmarkService.removeBookmark(testId);
+
+      if (success) {
+        _hasChanges = true;
+
+        // Update local list without fetching from server
+        if (mounted) {
+          setState(() {
+            _bookmarks.removeWhere((b) => b['test_id'] == testId);
+          });
+        }
+
+        if (mounted) {
+          if (_isOfflineMode && _authService.isLoggedIn) {
+            _showTopMessage(
+              'Bookmark removed (will sync when online)',
+              color: Colors.orange,
+            );
+          } else {
+            _showTopMessage('Bookmark removed', color: Colors.grey[800]!);
+          }
+        }
+
+        // Reload pending sync info to update the banner
+        await _loadPendingSyncInfo();
       }
     }
   }
@@ -175,20 +337,66 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
     if (confirmed == true) {
       await _bookmarkService.clearAllBookmarks();
       _hasChanges = true;
-      _loadBookmarks();
+
+      // Update local list immediately without fetching from server
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('All bookmarks cleared'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        setState(() {
+          _bookmarks.clear();
+        });
       }
+
+      if (mounted) {
+        if (_isOfflineMode && _authService.isLoggedIn) {
+          _showTopMessage(
+            'All bookmarks cleared (will sync when online)',
+            color: Colors.orange,
+          );
+        } else {
+          _showTopMessage('All bookmarks cleared', color: Colors.grey[800]!);
+        }
+      }
+
+      // Reload pending sync info to update the banner
+      await _loadPendingSyncInfo();
     }
+  }
+
+  Future<void> _handleSignIn() async {
+    setState(() => _showTopMessage('Signing in...', color: Colors.green));
+
+    final success = await _authService.signInWithGoogle();
+
+    if (!mounted) return;
+
+    if (success) {
+      await _loadBookmarks();
+      setState(() {});
+      _showTopMessage(
+        'Welcome, ${_authService.userName}!',
+        color: Colors.green,
+      );
+      setState(() => _showSignInBanner = false);
+    } else {
+      _showTopMessage('Sign in cancelled or failed', color: Colors.red);
+    }
+  }
+
+  void _showTopMessage(String message, {Color color = Colors.black87}) {
+    setState(() {
+      topMessage = message;
+      topMessageColor = color;
+    });
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => topMessage = null);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final isSignedIn = _authService.isLoggedIn;
+    final hasPendingSync = _pendingAdditions > 0 || _pendingDeletions > 0;
+
     return PopScope(
       canPop: true,
       onPopInvoked: (didPop) {
@@ -198,9 +406,29 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text(
-            'Bookmarked Tests',
-            style: TextStyle(fontWeight: FontWeight.bold),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Bookmarked Tests',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (_isOfflineMode) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
+              ],
+              if (_isSyncing) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                  ),
+                ),
+              ],
+            ],
           ),
           centerTitle: true,
           leading: IconButton(
@@ -216,39 +444,296 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
               ),
           ],
         ),
-        body:
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _bookmarks.isEmpty
-                ? _buildEmptyState()
-                : _buildBookmarkList(),
+        body: Column(
+          children: [
+            // Top message banner
+            if (topMessage != null)
+              Container(
+                width: double.infinity,
+                color: topMessageColor,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 16,
+                ),
+                child: Text(
+                  topMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                ),
+              ),
+
+            // Pending sync banner
+            if (isSignedIn && hasPendingSync && !_isSyncing)
+              _buildPendingSyncBanner(),
+
+            // Sign-in notice banner
+            if (!isSignedIn && _showSignInBanner && _bookmarks.isNotEmpty)
+              _buildSignInBanner(),
+
+            // Main content with pull-to-refresh
+            Expanded(
+              child:
+                  _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _bookmarks.isEmpty
+                      ? _buildEmptyState(isSignedIn)
+                      : RefreshIndicator(
+                        onRefresh: _loadBookmarks,
+                        child: _buildBookmarkList(),
+                      ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Align(
-        alignment: Alignment(0, -0.2),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.bookmark_border, size: 40, color: Colors.grey[400]),
-            const SizedBox(height: 6),
-            Text(
-              'No Bookmarks Yet',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[600],
+  /// Pending sync info banner
+  Widget _buildPendingSyncBanner() {
+    final totalPending = _pendingAdditions + _pendingDeletions;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orange[600]!, Colors.orange[400]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          // Only allow tapping when online and not already syncing
+          onTap: !_isOfflineMode && !_isSyncing ? _syncPendingActions : null,
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              children: [
+                Icon(
+                  _isOfflineMode ? Icons.cloud_off : Icons.cloud_queue,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _isOfflineMode
+                        ? '$totalPending change${totalPending == 1 ? '' : 's'} will sync when online'
+                        : '$totalPending change${totalPending == 1 ? '' : 's'} pending sync',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (_isSyncing)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                else if (!_isOfflineMode)
+                  Row(
+                    children: [
+                      Text(
+                        'Tap to sync',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.sync, color: Colors.white, size: 16),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Beautiful gradient banner encouraging sign-in
+  Widget _buildSignInBanner() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.blue[700]!, Colors.blue[500]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _handleSignIn,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.cloud_sync,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sync Across Devices?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Sign in to access your bookmarks on all devices',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Empty state with optional sign-in tip
+  Widget _buildEmptyState(bool isSignedIn) {
+    return RefreshIndicator(
+      onRefresh: _loadBookmarks,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.bookmark_border,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No Bookmarks Yet',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Bookmark tests to access them quickly',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (!isSignedIn) ...[
+                    const SizedBox(height: 24),
+                    InkWell(
+                      onTap: _handleSignIn,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.blue[200]!),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.blue[700],
+                              size: 32,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tip: Sign in to sync bookmarks',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue[900],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Access your bookmarks on all your devices',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.blue[700],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Tap to sign in',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue[900],
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.arrow_forward,
+                                  size: 14,
+                                  color: Colors.blue[600],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Bookmark tests to access them quickly',
-              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -273,23 +758,31 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () async {
-              // Get merged data (cached data with local images + bookmark info)
               final mergedData = _getMergedTestData(bookmark);
-
-              // Navigate to TestInfoScreen with merged data
               await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => TestInfoScreen(tests: mergedData),
                 ),
               );
-              // Refresh bookmarks when returning
               _loadBookmarks();
             },
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.science_outlined,
+                      color: Colors.blue[700],
+                      size: 24,
+                    ),
+                  ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(

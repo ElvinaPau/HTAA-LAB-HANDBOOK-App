@@ -136,6 +136,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     if (infos == null || infos is! List) return data;
 
     bool hasChanges = false;
+    final baseUrl = getBaseUrl();
 
     for (var info in infos) {
       if (info is Map && info.containsKey('extraData')) {
@@ -151,20 +152,24 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
             imagePath = imageData['url'].toString();
           }
 
-          // Check if it's a relative path that needs fixing
-          if (imagePath != null &&
-              imagePath.startsWith('/') &&
-              !imagePath.contains('cached_images')) {
-            // It's a relative path like /imgUploads/..., convert to network URL
-            final networkUrl = '${getBaseUrl()}$imagePath';
-            print('🔧 Fixing relative path: $imagePath → $networkUrl');
+          // Convert relative paths to network URLs
+          // Only keep paths that are actual cached files (contain 'cached_images')
+          if (imagePath != null && imagePath.startsWith('/')) {
+            if (!imagePath.contains('cached_images')) {
+              // It's a relative API path, convert to network URL
+              final networkUrl = '$baseUrl$imagePath';
+              print('🔧 Fixing relative path: $imagePath → $networkUrl');
 
-            if (imageData is String) {
-              extraData['image'] = networkUrl;
-            } else if (imageData is Map) {
-              extraData['image']['url'] = networkUrl;
+              if (imageData is String) {
+                extraData['image'] = networkUrl;
+              } else if (imageData is Map) {
+                extraData['image']['url'] = networkUrl;
+              }
+              hasChanges = true;
+            } else {
+              // It's already a cached file path, keep it
+              print('✅ Keeping cached file path: $imagePath');
             }
-            hasChanges = true;
           }
         }
       }
@@ -518,7 +523,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   }
 }
 
-// _TestInfoCard class remains the same
+// _TestInfoCard class
 class _TestInfoCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final String apiBaseUrl;
@@ -551,14 +556,17 @@ class _TestInfoCard extends StatelessWidget {
     String? result;
 
     if (image is String) {
-      // Check if it's already a local file path (from cache)
-      if (image.startsWith('/')) {
-        print('📦 Using cached local image: $image');
+      // If it's a cached file path, use it directly
+      if (image.contains('cached_images')) {
+        print('📦 Using cached file: $image');
         return image;
       }
 
-      // Otherwise, fix network URL
-      if (image.contains('localhost:5001')) {
+      // If it's a relative path without cached_images, convert to network URL
+      if (image.startsWith('/')) {
+        result = '$apiBaseUrl$image';
+        print('🌐 Converting relative path to network: $result');
+      } else if (image.contains('localhost:5001')) {
         result = image.replaceAll('http://localhost:5001', apiBaseUrl);
       } else if (image.startsWith('http')) {
         result = image;
@@ -570,14 +578,15 @@ class _TestInfoCard extends StatelessWidget {
       if (image['imageUrl'] != null) {
         final imageUrl = image['imageUrl'].toString();
 
-        // Check if it's a cached local path
-        if (imageUrl.startsWith('/')) {
-          print('📦 Using cached local image from map: $imageUrl');
+        if (imageUrl.contains('cached_images')) {
+          print('📦 Using cached file from map: $imageUrl');
           return imageUrl;
         }
 
-        // Fix network URL
-        if (imageUrl.contains('localhost:5001')) {
+        if (imageUrl.startsWith('/')) {
+          result = '$apiBaseUrl$imageUrl';
+          print('🌐 Converting relative imageUrl to network: $result');
+        } else if (imageUrl.contains('localhost:5001')) {
           result = imageUrl.replaceAll('http://localhost:5001', apiBaseUrl);
         } else if (imageUrl.startsWith('http')) {
           result = imageUrl;
@@ -589,12 +598,15 @@ class _TestInfoCard extends StatelessWidget {
       else if (image['url'] != null) {
         final String url = image['url'].toString();
 
-        if (url.startsWith('/')) {
-          print('📦 Using cached local image from url: $url');
+        if (url.contains('cached_images')) {
+          print('📦 Using cached file from url: $url');
           return url;
         }
 
-        if (url.contains('localhost:5001')) {
+        if (url.startsWith('/')) {
+          result = '$apiBaseUrl$url';
+          print('🌐 Converting relative url to network: $result');
+        } else if (url.contains('localhost:5001')) {
           result = url.replaceAll('http://localhost:5001', apiBaseUrl);
         } else if (url.startsWith('http')) {
           result = url;
@@ -853,7 +865,7 @@ class _TestInfoCard extends StatelessWidget {
     if (imageSrc == null) return const SizedBox.shrink();
 
     // Check if using local cache
-    final bool isLocalImage = imageSrc.startsWith('/');
+    final bool isLocalImage = imageSrc.contains('cached_images');
     print('📦 Container image source: $imageSrc');
     print('📦 Is local cached image: $isLocalImage');
 

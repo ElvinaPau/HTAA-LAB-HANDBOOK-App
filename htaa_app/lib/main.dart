@@ -18,6 +18,9 @@ Future<void> main() async {
   await Hive.openBox('testDetailsBox');
   await Hive.openBox('formsBox');
   await Hive.openBox('contactsBox');
+  await Hive.openBox('bookmarksBox');
+  await Hive.openBox('pendingAdditionsBox');
+  await Hive.openBox('pendingDeletionsBox');
 
   // Run app
   runApp(const HtaaApp());

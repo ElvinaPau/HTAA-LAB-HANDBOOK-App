@@ -1,4 +1,5 @@
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:htaa_app/services/bookmark_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -14,9 +15,8 @@ class AuthService {
     scopes: [
       'email',
       'profile',
-      'https://www.googleapis.com/auth/userinfo.profile', // Add this
+      'https://www.googleapis.com/auth/userinfo.profile',
     ],
-    // Add iOS client ID explicitly
     clientId:
         Platform.isIOS
             ? '892180593873-0in0o6tsk5ni5p3quuuptconl3cqjomr.apps.googleusercontent.com'
@@ -25,13 +25,13 @@ class AuthService {
 
   GoogleSignInAccount? _currentUser;
 
-  // Getters - FIX: Get photo with size parameter
+  // Getters
   bool get isLoggedIn => _currentUser != null;
   String get userName => _currentUser?.displayName ?? 'User';
   String get userEmail => _currentUser?.email ?? '';
+  String? get googleId => _currentUser?.id;
   String? get userPhotoUrl {
     if (_currentUser?.photoUrl != null) {
-      // Add size parameter to get higher quality photo
       final url = _currentUser!.photoUrl!;
       if (url.contains('googleusercontent.com')) {
         return url.contains('=s') ? url : '$url=s200-c';
@@ -90,7 +90,7 @@ class AuthService {
         print('  id: ${account.id}');
         print('  photoUrl: ${account.photoUrl}');
 
-        //Send user to backend API
+        // Send user to backend API
         final url = '${getBaseUrl()}/api/users';
         final response = await http.post(
           Uri.parse(url),
@@ -104,16 +104,22 @@ class AuthService {
         );
 
         if (response.statusCode == 200 || response.statusCode == 201) {
-          print('User successfully stored in backend.');
+          print('✅ User successfully stored in backend.');
         } else {
-          print('Failed to save user to backend: ${response.body}');
+          print('⚠️ Failed to save user to backend: ${response.body}');
         }
+
+        // Sync local bookmarks to cloud after successful sign-in
+        print('🔄 Syncing local bookmarks to cloud...');
+        final bookmarkService = BookmarkService();
+        await bookmarkService.syncPendingActions();
+        print('✅ Bookmark sync complete');
 
         return true;
       }
       return false;
     } catch (error) {
-      print('Error signing in with Google: $error');
+      print('❌ Error signing in with Google: $error');
       print('Error details: ${error.runtimeType}');
       return false;
     }
@@ -128,8 +134,10 @@ class AuthService {
       // Clear saved data
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('user_data');
+
+      print('✅ Successfully signed out');
     } catch (error) {
-      print('Error signing out: $error');
+      print('❌ Error signing out: $error');
     }
   }
 

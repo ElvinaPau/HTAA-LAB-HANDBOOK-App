@@ -587,15 +587,24 @@ class HomeScreenState extends State<HomeScreen> {
               IconButton(
                 iconSize: 28,
                 icon: const Icon(Icons.bookmark),
-                onPressed: () {
-                  Navigator.push(
+                onPressed: () async {
+                  // Navigate to BookmarkScreen and wait for a result
+                  final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => const BookmarkScreen(),
                     ),
                   );
+
+                  // If user signed in (BookmarkScreen returns true)
+                  if (result == true) {
+                    // Re-fetch authentication info or refresh UI
+                    await _initializeAuth(); // if you already have this method
+                    setState(() {});
+                  }
                 },
               ),
+
               const SizedBox(width: 48),
               IconButton(
                 iconSize: 28,
