@@ -26,21 +26,21 @@ class CachedImageWidget extends StatelessWidget {
     if (imagePath.startsWith('/')) {
       return _buildLocalImage();
     }
-    
+
     // Otherwise, it's a network URL
     return _buildNetworkImage();
   }
 
   Widget _buildLocalImage() {
     final file = File(imagePath);
-    
+
     return FutureBuilder<bool>(
       future: file.exists(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildPlaceholder();
         }
-        
+
         if (snapshot.hasData && snapshot.data == true) {
           return Image.file(
             file,
@@ -53,7 +53,7 @@ class CachedImageWidget extends StatelessWidget {
             },
           );
         }
-        
+
         // File doesn't exist
         return _buildError();
       },
@@ -83,9 +83,7 @@ class CachedImageWidget extends StatelessWidget {
           width: width,
           height: height,
           color: Colors.grey[200],
-          child: const Center(
-            child: CircularProgressIndicator(),
-          ),
+          child: const Center(child: CircularProgressIndicator()),
         );
   }
 
@@ -95,20 +93,7 @@ class CachedImageWidget extends StatelessWidget {
           width: width,
           height: height,
           color: Colors.grey[300],
-          child: const Icon(
-            Icons.broken_image,
-            size: 50,
-            color: Colors.grey,
-          ),
+          child: const Icon(Icons.broken_image, size: 50, color: Colors.grey),
         );
   }
 }
-
-/// Example usage:
-/// 
-/// CachedImageWidget(
-///   imagePath: info['imageUrl'],
-///   width: 300,
-///   height: 200,
-///   fit: BoxFit.cover,
-/// )

@@ -40,7 +40,7 @@ class BookmarkService {
     _connectivitySubscription = ConnectivityService().connectivityStream.listen(
       (result) {
         if (result != ConnectivityResult.none) {
-          print('📶 Connection restored, syncing pending actions...');
+          print('Connection restored, syncing pending actions...');
           syncPendingActions();
         }
       },
@@ -51,7 +51,7 @@ class BookmarkService {
     await _connectivitySubscription.cancel();
   }
 
-  /// ------------------ GET BOOKMARKS ------------------
+  /// GET BOOKMARKS
   Future<List<Map<String, dynamic>>> getBookmarks() async {
     await initialize();
     if (_authService.isLoggedIn) {
@@ -73,7 +73,7 @@ class BookmarkService {
       }
       return [];
     } catch (e) {
-      print('❌ Error reading local bookmarks: $e');
+      print('Error reading local bookmarks: $e');
       return [];
     }
   }
@@ -82,13 +82,13 @@ class BookmarkService {
     try {
       final googleId = _authService.googleId;
       if (googleId == null) {
-        print('⚠️ No Google ID, returning local bookmarks');
+        print('No Google ID, returning local bookmarks');
         return await _getLocalBookmarks();
       }
 
       // Check if online
       if (!await ConnectivityService().isOnline()) {
-        print('📴 Offline, returning local bookmarks');
+        print('Offline, returning local bookmarks');
         return await _getLocalBookmarks();
       }
 
@@ -111,19 +111,19 @@ class BookmarkService {
         await _box?.put(_bookmarksKey, bookmarks);
         await _box?.put(_lastSyncKey, DateTime.now().toIso8601String());
 
-        print('✅ Cloud bookmarks synced: ${bookmarks.length} items');
+        print('Cloud bookmarks synced: ${bookmarks.length} items');
         return bookmarks;
       } else {
-        print('⚠️ Failed to fetch cloud bookmarks: ${response.statusCode}');
+        print('Failed to fetch cloud bookmarks: ${response.statusCode}');
         return await _getLocalBookmarks();
       }
     } catch (e) {
-      print('❌ Error fetching cloud bookmarks: $e');
+      print('Error fetching cloud bookmarks: $e');
       return await _getLocalBookmarks();
     }
   }
 
-  /// ------------------ ADD BOOKMARK ------------------
+  /// ADD BOOKMARK
   Future<bool> addBookmark(Map<String, dynamic> testData) async {
     await initialize();
 
@@ -135,11 +135,11 @@ class BookmarkService {
     // Save locally first (always works)
     final addedLocally = await _addLocalBookmark(testData);
     if (!addedLocally) {
-      print('❌ Failed to add bookmark locally');
+      print('Failed to add bookmark locally');
       return false;
     }
 
-    print('✅ Bookmark added locally: $testName');
+    print('Bookmark added locally: $testName');
 
     // If signed in, try to sync to cloud or queue for later
     if (_authService.isLoggedIn) {
@@ -155,16 +155,16 @@ class BookmarkService {
         );
 
         if (success) {
-          print('✅ Bookmark synced to cloud: $testName');
+          print('Bookmark synced to cloud: $testName');
           // Remove from pending if it was there
           await _pendingAdditions?.delete(testId);
         } else {
-          print('⚠️ Failed to sync to cloud, queuing for later: $testName');
+          print('Failed to sync to cloud, queuing for later: $testName');
           await _pendingAdditions?.put(testId, testData);
         }
       } else {
         // Offline - queue for later sync
-        print('📴 Offline - queuing bookmark for sync: $testName');
+        print('Offline - queuing bookmark for sync: $testName');
         await _pendingAdditions?.put(testId, testData);
       }
     }
@@ -178,7 +178,7 @@ class BookmarkService {
 
     // Check if already bookmarked
     if (bookmarks.any((b) => b['test_id'] == testId)) {
-      print('ℹ️ Bookmark already exists locally: $testId');
+      print('Bookmark already exists locally: $testId');
       return false;
     }
 
@@ -195,7 +195,7 @@ class BookmarkService {
       await _box?.put(_bookmarksKey, bookmarks);
       return true;
     } catch (e) {
-      print('❌ Error saving local bookmark: $e');
+      print('Error saving local bookmark: $e');
       return false;
     }
   }
@@ -209,7 +209,7 @@ class BookmarkService {
     try {
       final googleId = _authService.googleId;
       if (googleId == null) {
-        print('⚠️ No Google ID for cloud sync');
+        print('No Google ID for cloud sync');
         return false;
       }
 
@@ -236,30 +236,30 @@ class BookmarkService {
       if (response.statusCode == 201) {
         return true;
       } else if (response.statusCode == 409) {
-        print('ℹ️ Bookmark already exists in cloud: $testId');
+        print('Bookmark already exists in cloud: $testId');
         return true; // Already exists, consider it a success
       } else {
-        print('⚠️ Failed to add cloud bookmark: ${response.body}');
+        print('Failed to add cloud bookmark: ${response.body}');
         return false;
       }
     } catch (e) {
-      print('❌ Error adding cloud bookmark: $e');
+      print('Error adding cloud bookmark: $e');
       return false;
     }
   }
 
-  /// ------------------ REMOVE BOOKMARK ------------------
+  /// REMOVE BOOKMARK
   Future<bool> removeBookmark(int testId) async {
     await initialize();
 
     // Remove locally first
     final removedLocally = await _removeLocalBookmark(testId);
     if (!removedLocally) {
-      print('⚠️ Bookmark not found locally: $testId');
+      print('Bookmark not found locally: $testId');
       return false;
     }
 
-    print('✅ Bookmark removed locally: $testId');
+    print('Bookmark removed locally: $testId');
 
     // If signed in, try to sync deletion to cloud or queue for later
     if (_authService.isLoggedIn) {
@@ -270,18 +270,18 @@ class BookmarkService {
         final success = await _removeCloudBookmark(testId);
 
         if (success) {
-          print('✅ Bookmark deletion synced to cloud: $testId');
+          print('Bookmark deletion synced to cloud: $testId');
           // Remove from pending if it was there
           await _pendingDeletions?.delete(testId);
           // Also remove from pending additions if it was there
           await _pendingAdditions?.delete(testId);
         } else {
-          print('⚠️ Failed to sync deletion to cloud, queuing: $testId');
+          print('Failed to sync deletion to cloud, queuing: $testId');
           await _pendingDeletions?.put(testId, true);
         }
       } else {
         // Offline - queue for later sync
-        print('📴 Offline - queuing deletion for sync: $testId');
+        print('Offline - queuing deletion for sync: $testId');
         await _pendingDeletions?.put(testId, true);
         // Remove from pending additions if user added then removed offline
         await _pendingAdditions?.delete(testId);
@@ -305,7 +305,7 @@ class BookmarkService {
       await _box?.put(_bookmarksKey, bookmarks);
       return true;
     } catch (e) {
-      print('❌ Error removing local bookmark: $e');
+      print('Error removing local bookmark: $e');
       return false;
     }
   }
@@ -325,12 +325,12 @@ class BookmarkService {
           response.statusCode == 204 ||
           response.statusCode == 404;
     } catch (e) {
-      print('❌ Error removing cloud bookmark: $e');
+      print('Error removing cloud bookmark: $e');
       return false;
     }
   }
 
-  /// ------------------ TOGGLE BOOKMARK ------------------
+  /// TOGGLE BOOKMARK
   Future<bool> toggleBookmark(Map<String, dynamic> testData) async {
     final testId = testData['test_id'] ?? testData['id'];
     final bookmarked = await isBookmarked(testId);
@@ -349,23 +349,23 @@ class BookmarkService {
     return bookmarks.any((b) => b['test_id'] == testId);
   }
 
-  /// ------------------ CLEAR ALL ------------------
+  /// CLEAR ALL
   Future<bool> clearAllBookmarks() async {
     await initialize();
 
-    // 1️⃣ Get all current bookmarks IDs BEFORE clearing
+    // Get all current bookmarks IDs BEFORE clearing
     final currentBookmarks = await getBookmarks();
     final allIds = currentBookmarks.map((b) => b['test_id'] as int).toList();
 
-    // 2️⃣ Clear local storage immediately
+    // Clear local storage immediately
     await _box?.delete(_bookmarksKey);
 
-    // 3️⃣ Clear pending additions (no need to sync additions that were cleared)
+    // Clear pending additions (no need to sync additions that were cleared)
     await _pendingAdditions?.clear();
 
-    print('✅ Local bookmarks cleared');
+    print('Local bookmarks cleared');
 
-    // 4️⃣ If signed in, handle cloud sync
+    // If signed in, handle cloud sync
     if (_authService.isLoggedIn) {
       final googleId = _authService.googleId;
 
@@ -374,7 +374,7 @@ class BookmarkService {
 
         if (isOnline && allIds.isNotEmpty) {
           try {
-            // 4a️⃣ Use sync endpoint to handle batch deletions
+            // Use sync endpoint to handle batch deletions
             final url = '${getBaseUrl()}/api/bookmarks/sync';
             final response = await http
                 .post(
@@ -391,7 +391,7 @@ class BookmarkService {
             if (response.statusCode == 200 || response.statusCode == 404) {
               final data = json.decode(response.body);
               final deletedCount = data['deletedCount'] ?? 0;
-              print('✅ Cloud bookmarks cleared ($deletedCount items)');
+              print('Cloud bookmarks cleared ($deletedCount items)');
               await _getCloudBookmarks();
               return true;
             } else {
@@ -400,7 +400,7 @@ class BookmarkService {
                 await _pendingDeletions?.put(id, true);
               }
               print(
-                '⚠️ Cloud sync failed (${response.statusCode}), queued ${allIds.length} deletions for later',
+                'Cloud sync failed (${response.statusCode}), queued ${allIds.length} deletions for later',
               );
             }
           } catch (e) {
@@ -409,7 +409,7 @@ class BookmarkService {
               await _pendingDeletions?.put(id, true);
             }
             print(
-              '❌ Error during cloud sync: $e. Queued ${allIds.length} deletions for later',
+              'Error during cloud sync: $e. Queued ${allIds.length} deletions for later',
             );
           }
         } else if (allIds.isNotEmpty) {
@@ -417,9 +417,7 @@ class BookmarkService {
           for (var id in allIds) {
             await _pendingDeletions?.put(id, true);
           }
-          print(
-            '📴 Offline - queued ${allIds.length} deletions for later sync',
-          );
+          print('Offline - queued ${allIds.length} deletions for later sync');
         }
       }
     }
@@ -427,21 +425,21 @@ class BookmarkService {
     return true;
   }
 
-  /// ------------------ SYNC PENDING ACTIONS ------------------
+  /// SYNC PENDING ACTIONS
   Future<void> syncPendingActions() async {
     if (!_authService.isLoggedIn) {
-      print('ℹ️ Not signed in, skipping sync');
+      print('Not signed in, skipping sync');
       return;
     }
 
     if (!await ConnectivityService().isOnline()) {
-      print('📴 Offline, cannot sync');
+      print('Offline, cannot sync');
       return;
     }
 
     await initialize();
 
-    print('🔄 Starting sync of pending actions...');
+    print('Starting sync of pending actions...');
 
     int addedCount = 0;
     int deletedCount = 0;
@@ -449,7 +447,7 @@ class BookmarkService {
 
     // Sync deletions first (in case user deleted something they added offline)
     final deletions = _pendingDeletions?.toMap() ?? {};
-    print('📤 Syncing ${deletions.length} pending deletions...');
+    print('Syncing ${deletions.length} pending deletions...');
 
     for (var entry in deletions.entries) {
       try {
@@ -459,20 +457,20 @@ class BookmarkService {
         if (success) {
           await _pendingDeletions?.delete(entry.key);
           deletedCount++;
-          print('  ✅ Synced deletion: $testId');
+          print('  Synced deletion: $testId');
         } else {
           failedCount++;
-          print('  ⚠️ Failed to sync deletion: $testId');
+          print('  Failed to sync deletion: $testId');
         }
       } catch (e) {
         failedCount++;
-        print('  ❌ Error syncing deletion: $e');
+        print('  Error syncing deletion: $e');
       }
     }
 
     // Sync additions
     final additions = _pendingAdditions?.toMap() ?? {};
-    print('📤 Syncing ${additions.length} pending additions...');
+    print('Syncing ${additions.length} pending additions...');
 
     for (var entry in additions.entries) {
       try {
@@ -485,7 +483,7 @@ class BookmarkService {
             (entry.key is int ? entry.key as int : null);
 
         if (testId == null) {
-          print('  ⚠️ Skipping addition: missing test_id in data: $testData');
+          print('  Skipping addition: missing test_id in data: $testData');
           await _pendingAdditions?.delete(entry.key);
           failedCount++;
           continue;
@@ -506,14 +504,14 @@ class BookmarkService {
         if (success) {
           await _pendingAdditions?.delete(entry.key);
           addedCount++;
-          print('  ✅ Synced addition: $testName (ID: $testId)');
+          print('  Synced addition: $testName (ID: $testId)');
         } else {
           failedCount++;
-          print('  ⚠️ Failed to sync addition: $testName (ID: $testId)');
+          print('  Failed to sync addition: $testName (ID: $testId)');
         }
       } catch (e) {
         failedCount++;
-        print('  ❌ Error syncing addition: $e');
+        print('  Error syncing addition: $e');
         print('  Entry key: ${entry.key}, Entry value: ${entry.value}');
       }
     }
@@ -524,11 +522,11 @@ class BookmarkService {
     }
 
     print(
-      '✅ Sync complete: $addedCount added, $deletedCount deleted, $failedCount failed',
+      'Sync complete: $addedCount added, $deletedCount deleted, $failedCount failed',
     );
   }
 
-  /// ------------------ UTILITY METHODS ------------------
+  /// UTILITY METHODS
 
   Future<int> getBookmarkCount() async {
     final bookmarks = await getBookmarks();
@@ -558,12 +556,12 @@ class BookmarkService {
   /// Force sync - useful for manual sync triggers
   Future<bool> forceSyncNow() async {
     if (!_authService.isLoggedIn) {
-      print('⚠️ Cannot force sync: not signed in');
+      print('Cannot force sync: not signed in');
       return false;
     }
 
     if (!await ConnectivityService().isOnline()) {
-      print('⚠️ Cannot force sync: offline');
+      print('Cannot force sync: offline');
       return false;
     }
 

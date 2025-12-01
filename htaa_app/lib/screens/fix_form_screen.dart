@@ -275,7 +275,7 @@ class FixFormScreenState extends State<FixFormScreen> {
                                         columns: [
                                           DataColumn(
                                             label: SizedBox(
-                                              width: noWidth - 16,
+                                              width: noWidth - 14,
                                               child: const Text(
                                                 'No',
                                                 style: TextStyle(

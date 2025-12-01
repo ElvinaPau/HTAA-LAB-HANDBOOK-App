@@ -138,8 +138,8 @@ class _ContactScreenState extends State<ContactScreen> {
       });
 
       showTopMessage(
-        'You are offline. Data cannot be refreshed.',
-        color: Colors.red,
+        'You are offline. Contact cannot be refreshed.',
+        color: Colors.orange,
       );
     } else {
       setState(() {
@@ -161,7 +161,7 @@ class _ContactScreenState extends State<ContactScreen> {
             const Text('Contact Information'),
             if (_isOfflineMode) ...[
               const SizedBox(width: 6),
-              Icon(Icons.cloud_off, size: 18, color: Colors.orange),
+              Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
             ],
           ],
         ),

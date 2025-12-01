@@ -137,8 +137,8 @@ class HomeScreenState extends State<HomeScreen> {
 
         // Show top message instead of overlay
         showTopMessage(
-          'You are offline. Data cannot be refreshed.',
-          color: Colors.red,
+          'You are offline. Categories cannot be refreshed.',
+          color: Colors.orange,
         );
       } else {
         setState(() {
@@ -339,9 +339,10 @@ class HomeScreenState extends State<HomeScreen> {
                           children: [
                             Text(
                               _authService.userName,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
+                                color: Colors.grey[800],
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -360,9 +361,12 @@ class HomeScreenState extends State<HomeScreen> {
                         value: 'logout',
                         child: Row(
                           children: [
-                            Icon(Icons.logout, size: 20),
+                            Icon(Icons.logout, size: 20, color: Colors.red),
                             SizedBox(width: 12),
-                            Text('Sign out'),
+                            Text(
+                              'Sign out',
+                              style: TextStyle(fontSize: 15, color: Colors.red),
+                            ),
                           ],
                         ),
                       ),
@@ -449,8 +453,8 @@ class HomeScreenState extends State<HomeScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(25.0),
-                                    borderSide: const BorderSide(
-                                      color: Colors.blue,
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).primaryColor,
                                       width: 2.0,
                                     ),
                                   ),
@@ -492,7 +496,7 @@ class HomeScreenState extends State<HomeScreen> {
                                                   return SizedBox(
                                                     width:
                                                         constraints.maxWidth *
-                                                        0.6,
+                                                        0.8,
                                                     child: Card(
                                                       color: Colors.white,
                                                       elevation: 3,
@@ -608,7 +612,7 @@ class HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 48),
               IconButton(
                 iconSize: 28,
-                icon: const Icon(Icons.phone),
+                icon: const Icon(Icons.feedback),
                 onPressed: () {
                   Navigator.push(
                     context,

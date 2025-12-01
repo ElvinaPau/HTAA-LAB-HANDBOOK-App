@@ -34,6 +34,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   // Top message state
   String? topMessage;
   Color? topMessageColor;
+  IconData? topMessageIcon;
   Timer? _messageTimer;
   VoidCallback? _topMessageAction;
   String? _topMessageActionLabel;
@@ -55,7 +56,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     _checkBookmarkStatus();
     _initializeTestData();
 
-    // Listen for connectivity changes with debouncing
     _connectivitySubscription = ConnectivityService().connectivityStream.listen(
       _handleConnectivityChange,
     );
@@ -76,10 +76,11 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     super.dispose();
   }
 
-  // Uniform notification system
+  // Enhanced notification system with icons
   void showTopMessage(
     String message, {
     Color color = Colors.blue,
+    IconData? icon,
     VoidCallback? onActionPressed,
     String? actionLabel,
   }) {
@@ -88,14 +89,16 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     setState(() {
       topMessage = message;
       topMessageColor = color;
+      topMessageIcon = icon;
       _topMessageAction = onActionPressed;
       _topMessageActionLabel = actionLabel;
     });
 
-    _messageTimer = Timer(const Duration(seconds: 2), () {
+    _messageTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) {
         setState(() {
           topMessage = null;
+          topMessageIcon = null;
           _topMessageAction = null;
           _topMessageActionLabel = null;
         });
@@ -145,40 +148,29 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           dynamic imageData = extraData['image'];
           String? imagePath;
 
-          // Extract current image path
           if (imageData is String) {
             imagePath = imageData;
           } else if (imageData is Map && imageData['url'] != null) {
             imagePath = imageData['url'].toString();
           }
 
-          // Convert relative paths to network URLs
-          // Only keep paths that are actual cached files (contain 'cached_images')
           if (imagePath != null && imagePath.startsWith('/')) {
             if (!imagePath.contains('cached_images')) {
-              // It's a relative API path, convert to network URL
               final networkUrl = '$baseUrl$imagePath';
-              print('🔧 Fixing relative path: $imagePath → $networkUrl');
-
               if (imageData is String) {
                 extraData['image'] = networkUrl;
               } else if (imageData is Map) {
                 extraData['image']['url'] = networkUrl;
               }
               hasChanges = true;
-            } else {
-              // It's already a cached file path, keep it
-              print('✅ Keeping cached file path: $imagePath');
             }
           }
         }
       }
     }
 
-    // If we made changes, save back to cache
     if (hasChanges) {
       await _cacheService.saveData(_cacheBoxName, _testDetailsCacheKey, data);
-      print('✅ Fixed and saved image paths to cache');
     }
 
     return data;
@@ -189,7 +181,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
 
     final infos = widget.tests['infos'];
 
-    // If we already have complete data, fix image paths, cache it and use it
     if (infos != null && infos is List && infos.isNotEmpty) {
       final fixedData = await _fixImagePaths(widget.tests);
       await _cacheService.saveData(
@@ -203,7 +194,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         _isLoading = false;
       });
     } else {
-      // Try to load from cache first
       var cachedData = _cacheService.getData(
         _cacheBoxName,
         _testDetailsCacheKey,
@@ -212,7 +202,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
       );
 
       if (cachedData != null && cachedData is Map) {
-        // Fix any relative paths in cached data
         cachedData = await _fixImagePaths(
           Map<String, dynamic>.from(cachedData),
         );
@@ -224,11 +213,10 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         });
 
         showTopMessage(
-          'You are offline. Data cannot be refreshed.',
-          color: Colors.red,
+          'You are offline. Test info cannot be refreshed.',
+          color: Colors.orange,
         );
       } else {
-        // No cache - try to fetch from API
         await _refreshTestData();
       }
     }
@@ -263,7 +251,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = json.decode(response.body);
 
-        // Add category info for bookmarking
         if (widget.tests['category_name'] != null) {
           data['category_name'] = widget.tests['category_name'];
         }
@@ -271,7 +258,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           data['category_id'] = widget.tests['category_id'];
         }
 
-        // Save to cache
         await _cacheService.saveData(_cacheBoxName, _testDetailsCacheKey, data);
 
         setState(() {
@@ -283,7 +269,6 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         throw Exception('Server error (${response.statusCode})');
       }
     } catch (e) {
-      // Try to load from cache on error
       final cachedData = _cacheService.getData(
         _cacheBoxName,
         _testDetailsCacheKey,
@@ -299,8 +284,8 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         });
 
         showTopMessage(
-          'You are offline. Data cannot be refreshed.',
-          color: Colors.red,
+          'You are offline. Test info cannot be refreshed.',
+          color: Colors.orange,
         );
       } else {
         setState(() {
@@ -309,7 +294,11 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         });
 
         String errorMessage = _getErrorMessage(e);
-        showTopMessage(errorMessage, color: Colors.red);
+        showTopMessage(
+          errorMessage,
+          color: Colors.red[600]!,
+          icon: Icons.error_outline,
+        );
       }
     }
   }
@@ -317,15 +306,15 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   String _getErrorMessage(dynamic error) {
     final errorStr = error.toString();
     if (errorStr.contains('timeout') || errorStr.contains('Timeout')) {
-      return 'Connection timeout. Please check your internet.';
+      return 'Connection timeout';
     } else if (errorStr.contains('SocketException') ||
         errorStr.contains('Unable to connect') ||
         errorStr.contains('Failed host lookup')) {
-      return 'No internet connection. Please try again.';
+      return 'No internet connection';
     } else if (errorStr.contains('Server error')) {
-      return 'Server error. Please try again later.';
+      return 'Server error occurred';
     } else {
-      return 'Failed to load test info. Please try again.';
+      return 'Failed to load data';
     }
   }
 
@@ -354,15 +343,17 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
 
       if (nowBookmarked) {
         showTopMessage(
-          'Added "$testName" to bookmarks',
+          'Added to bookmarks',
           color: Colors.green,
+          icon: Icons.bookmark_added,
           actionLabel: 'View',
           onActionPressed: _navigateToBookmarks,
         );
       } else {
         showTopMessage(
-          'Removed "$testName" from bookmarks',
-          color: Colors.grey,
+          'Removed from bookmarks',
+          color: Colors.grey[600]!,
+          icon: Icons.bookmark_remove,
         );
       }
     }
@@ -378,13 +369,19 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
 
     return Scaffold(
       appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Flexible(
               child: AutoSizeText(
                 testName,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
                 maxLines: 1,
                 minFontSize: 12,
                 maxFontSize: 20,
@@ -392,46 +389,71 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
               ),
             ),
             if (_isOfflineMode) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
+                  const SizedBox(width: 4),
+                ],
+              ),
             ],
           ],
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () {
-            Navigator.pop(context, _isBookmarked);
-          },
+          icon: const Icon(Icons.arrow_back_ios, size: 20),
+          onPressed: () => Navigator.pop(context, _isBookmarked),
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
-              color: _isBookmarked ? Colors.blue : null,
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: IconButton(
+              key: ValueKey(_isBookmarked),
+              icon: Icon(
+                _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                color:
+                    _isBookmarked
+                        ? Theme.of(context).primaryColor
+                        : Colors.grey[600],
+              ),
+              onPressed: _toggleBookmark,
+              tooltip: _isBookmarked ? 'Remove bookmark' : 'Add bookmark',
             ),
-            onPressed: _toggleBookmark,
-            tooltip: _isBookmarked ? 'Remove bookmark' : 'Add bookmark',
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
-          // Uniform top message banner
+          // Enhanced status banner
           if (topMessage != null)
-            Container(
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
               width: double.infinity,
-              color: topMessageColor,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                color: topMessageColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
               child: Row(
                 children: [
+                  if (topMessageIcon != null) ...[
+                    Icon(topMessageIcon, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: Text(
                       topMessage!,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -443,6 +465,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                         _topMessageAction?.call();
                         setState(() {
                           topMessage = null;
+                          topMessageIcon = null;
                           _topMessageAction = null;
                           _topMessageActionLabel = null;
                         });
@@ -450,16 +473,23 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                       },
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
+
+                        // REMOVE ALL INTERNAL PADDING
+                        padding: EdgeInsets.zero,
+
+                        // REMOVE BUTTON MINIMUM CONSTRAINTS
+                        minimumSize: Size(0, 0),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       child: Text(
                         _topMessageActionLabel!,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                          fontSize: 13,
                         ),
                       ),
                     ),
@@ -469,7 +499,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           Expanded(
             child:
                 _isLoading
-                    ? const Center(child: CircularProgressIndicator())
+                    ? _buildLoadingState()
                     : infos.isEmpty
                     ? _buildEmptyState()
                     : RefreshIndicator(
@@ -481,7 +511,11 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                           final info = infos[index];
                           final Map<String, dynamic> d =
                               info['extraData'] ?? {};
-                          return _TestInfoCard(data: d, apiBaseUrl: apiBaseUrl);
+                          return _TestInfoCard(
+                            data: d,
+                            apiBaseUrl: apiBaseUrl,
+                            index: index,
+                          );
                         },
                       ),
                     ),
@@ -491,31 +525,90 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     );
   }
 
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Loading test information...',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.info_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              "No test infos available",
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[600],
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _isOfflineMode ? Icons.cloud_off : Icons.info_outline,
+                size: 64,
+                color: Colors.grey[400],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 24),
             Text(
               _isOfflineMode
-                  ? "This test hasn't been cached yet.\nPlease connect to the internet to view."
-                  : "No information available for this test.",
-              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                  ? "No Cached Data Available"
+                  : "No Information Available",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _isOfflineMode
+                  ? "This test hasn't been viewed while online yet.\nConnect to the internet to view details."
+                  : "No information is currently available for this test.",
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
+            if (_isOfflineMode) ...[
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: _refreshTestData,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Retry'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[600],
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -523,12 +616,17 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   }
 }
 
-// _TestInfoCard class
+// Enhanced _TestInfoCard class
 class _TestInfoCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final String apiBaseUrl;
+  final int index;
 
-  const _TestInfoCard({required this.data, required this.apiBaseUrl});
+  const _TestInfoCard({
+    required this.data,
+    required this.apiBaseUrl,
+    required this.index,
+  });
 
   String _stripHtml(String? html) {
     if (html == null || html.isEmpty) return '';
@@ -556,16 +654,12 @@ class _TestInfoCard extends StatelessWidget {
     String? result;
 
     if (image is String) {
-      // If it's a cached file path, use it directly
       if (image.contains('cached_images')) {
-        print('📦 Using cached file: $image');
         return image;
       }
 
-      // If it's a relative path without cached_images, convert to network URL
       if (image.startsWith('/')) {
         result = '$apiBaseUrl$image';
-        print('🌐 Converting relative path to network: $result');
       } else if (image.contains('localhost:5001')) {
         result = image.replaceAll('http://localhost:5001', apiBaseUrl);
       } else if (image.startsWith('http')) {
@@ -574,18 +668,15 @@ class _TestInfoCard extends StatelessWidget {
         result = '$apiBaseUrl$image';
       }
     } else if (image is Map) {
-      // Check for imageUrl (used in infos)
       if (image['imageUrl'] != null) {
         final imageUrl = image['imageUrl'].toString();
 
         if (imageUrl.contains('cached_images')) {
-          print('📦 Using cached file from map: $imageUrl');
           return imageUrl;
         }
 
         if (imageUrl.startsWith('/')) {
           result = '$apiBaseUrl$imageUrl';
-          print('🌐 Converting relative imageUrl to network: $result');
         } else if (imageUrl.contains('localhost:5001')) {
           result = imageUrl.replaceAll('http://localhost:5001', apiBaseUrl);
         } else if (imageUrl.startsWith('http')) {
@@ -593,19 +684,15 @@ class _TestInfoCard extends StatelessWidget {
         } else {
           result = '$apiBaseUrl$imageUrl';
         }
-      }
-      // Fallback to 'url' key
-      else if (image['url'] != null) {
+      } else if (image['url'] != null) {
         final String url = image['url'].toString();
 
         if (url.contains('cached_images')) {
-          print('📦 Using cached file from url: $url');
           return url;
         }
 
         if (url.startsWith('/')) {
           result = '$apiBaseUrl$url';
-          print('🌐 Converting relative url to network: $result');
         } else if (url.contains('localhost:5001')) {
           result = url.replaceAll('http://localhost:5001', apiBaseUrl);
         } else if (url.startsWith('http')) {
@@ -695,38 +782,97 @@ class _TestInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildTitle(),
-            _buildLabInCharge(),
-            _buildSpecimenType(),
-            _buildForm(context),
-            _buildTAT(),
-            _buildContainer(),
-            _buildContainerLabel(),
-            _buildSampleVolume(),
-            _buildDescription(),
-            _buildRemark(),
-          ],
+    final List<Widget> children = [];
+
+    final title = (data['title'] ?? '').toString().trim();
+    if (title.isNotEmpty) children.add(_buildTitle());
+
+    final labInCharge = (data['labInCharge'] ?? '').toString().trim();
+    if (labInCharge.isNotEmpty) children.add(_buildLabInCharge());
+
+    if (_getSpecimenTypes().isNotEmpty) children.add(_buildSpecimenType());
+
+    final form = data['form'];
+    if (form != null &&
+        form is Map &&
+        (form['text'] != null || form['url'] != null)) {
+      children.add(_buildForm(context));
+    }
+
+    final tat = (data['TAT'] ?? '').toString().trim();
+    if (tat.isNotEmpty) children.add(_buildTAT());
+
+    final imageSrc = _getImageSrc();
+    if (imageSrc != null) children.add(_buildContainer());
+
+    final sampleVolume = (data['sampleVolume'] ?? '').toString().trim();
+    if (sampleVolume.isNotEmpty) children.add(_buildSampleVolume());
+
+    final description = (data['description'] ?? '').toString().trim();
+    if (description.isNotEmpty) children.add(_buildDescription());
+
+    final remark = (data['remark'] ?? '').toString().trim();
+    if (remark.isNotEmpty) children.add(_buildRemark());
+
+    return TweenAnimationBuilder<double>(
+      duration: Duration(milliseconds: 300 + (index * 50)),
+      tween: Tween(begin: 0.0, end: 1.0),
+      curve: Curves.easeOut,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 20 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 16),
+        elevation: 2,
+        shadowColor: Colors.black.withOpacity(0.1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.white, Colors.grey[50]!],
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
+            ),
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
       ),
     );
   }
 
   Widget _buildTitle() {
     if (data['title'] == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        _stripHtml(data['title']),
-        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+    return Text(
+      _stripHtml(data['title']),
+      style: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+        height: 1.3,
+        letterSpacing: -0.5,
       ),
     );
   }
@@ -734,16 +880,15 @@ class _TestInfoCard extends StatelessWidget {
   Widget _buildLabInCharge() {
     if (data['labInCharge'] == null) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Lab In-Charge:",
-            style: TextStyle(fontWeight: FontWeight.bold),
+          _buildSectionHeader('Lab In-Charge'),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+            child: Text(_stripHtml(data['labInCharge']), style: TextStyle()),
           ),
-          const SizedBox(height: 4),
-          Text(_stripHtml(data['labInCharge'])),
         ],
       ),
     );
@@ -753,21 +898,26 @@ class _TestInfoCard extends StatelessWidget {
     final List<String> types = _getSpecimenTypes();
     if (types.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Specimen Type:",
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          ...types.map(
-            (type) => Html(
-              data: _sanitizeData(type).toString().replaceAll('\n', '<br />'),
-              style: {
-                "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-              },
+          _buildSectionHeader('Specimen Type'),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children:
+                  types
+                      .map(
+                        (type) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(_stripHtml(type), style: TextStyle()),
+                        ),
+                      )
+                      .toList(),
             ),
           ),
         ],
@@ -776,26 +926,35 @@ class _TestInfoCard extends StatelessWidget {
   }
 
   Widget _buildForm(BuildContext context) {
-    if (data['form'] == null) return const SizedBox.shrink();
     final form = data['form'];
-    if (form is! Map || (form['text'] == null && form['url'] == null)) {
+    if (form == null ||
+        form is! Map ||
+        (form['text'] == null && form['url'] == null)) {
       return const SizedBox.shrink();
     }
+
+    final formText = (form['text'] ?? form['url'] ?? '').toString().trim();
+    if (formText.isEmpty) return const SizedBox.shrink();
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Form:", style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
+          _buildSectionHeader('Form'),
           if (form['url'] != null)
             InkWell(
               onTap: () => _launchUrl(context, _sanitizeData(form['url'])),
-              child: Text(
-                _sanitizeData(form['text'] ?? form['url']),
-                style: const TextStyle(
-                  color: Colors.blue,
-                  decoration: TextDecoration.underline,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+                child: Text(
+                  _sanitizeData(form['text'] ?? form['url']),
+                  style: TextStyle(
+                    color: Colors.blue,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.underline,
+                  ),
                 ),
               ),
             )
@@ -814,46 +973,71 @@ class _TestInfoCard extends StatelessWidget {
       } else {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not launch $urlString')),
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text('Could not launch $urlString'),
+                ],
+              ),
+              backgroundColor: Colors.red[600],
+            ),
           );
         }
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error launching URL: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Error launching URL: $e'),
+              ],
+            ),
+            backgroundColor: Colors.red[600],
+          ),
+        );
       }
     }
   }
 
   Widget _buildTAT() {
-    if (data['TAT'] == null) return const SizedBox.shrink();
+    final tat = (data['TAT'] ?? '').toString().trim();
+    if (tat.isEmpty) return const SizedBox.shrink();
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("TAT:", style: TextStyle(fontWeight: FontWeight.bold)),
-          Html(
-            data: _processHtmlForAlignment(
-              _sanitizeData(data['TAT']).toString().replaceAll('\n', '<br />'),
+          _buildSectionHeader('TAT'),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+            child: Html(
+              data: _processHtmlForAlignment(
+                _sanitizeData(
+                  data['TAT'],
+                ).toString().replaceAll('\n', '<br />'),
+              ),
+              style: {
+                "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+                "img": Style(display: Display.block),
+                "ul": Style(
+                  margin: Margins.zero,
+                  padding: HtmlPaddings.only(left: 20),
+                  listStylePosition: ListStylePosition.outside,
+                ),
+                "ol": Style(
+                  margin: Margins.zero,
+                  padding: HtmlPaddings.only(left: 20),
+                  listStylePosition: ListStylePosition.outside,
+                ),
+                "li": Style(margin: Margins.only(bottom: 5)),
+              },
             ),
-            style: {
-              "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-              "img": Style(display: Display.block),
-              "ul": Style(
-                margin: Margins.zero,
-                padding: HtmlPaddings.only(left: 20),
-                listStylePosition: ListStylePosition.outside,
-              ),
-              "ol": Style(
-                margin: Margins.zero,
-                padding: HtmlPaddings.only(left: 20),
-                listStylePosition: ListStylePosition.outside,
-              ),
-              "li": Style(margin: Margins.only(bottom: 5)),
-            },
           ),
         ],
       ),
@@ -862,81 +1046,135 @@ class _TestInfoCard extends StatelessWidget {
 
   Widget _buildContainer() {
     final String? imageSrc = _getImageSrc();
-    if (imageSrc == null) return const SizedBox.shrink();
+    final String containerLabel =
+        (data['containerLabel'] ?? '').toString().trim();
 
-    // Check if using local cache
-    final bool isLocalImage = imageSrc.contains('cached_images');
-    print('📦 Container image source: $imageSrc');
-    print('📦 Is local cached image: $isLocalImage');
+    // Don't show container section if both image and label are empty
+    if (imageSrc == null && containerLabel.isEmpty)
+      return const SizedBox.shrink();
+
+    final bool isLocalImage = imageSrc?.contains('cached_images') ?? false;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Container:",
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          CachedImageWidget(
-            imagePath: imageSrc,
-            width: 250,
-            fit: BoxFit.contain,
-            placeholder: SizedBox(
-              width: 250,
-              height: 100,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 8),
-                    Text(
-                      isLocalImage
-                          ? 'Loading cached image...'
-                          : 'Downloading...',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            errorWidget: Container(
-              width: 250,
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[400]!),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isLocalImage ? Icons.image_not_supported : Icons.cloud_off,
-                    color: Colors.grey[600],
-                    size: 40,
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    isLocalImage
-                        ? 'Cached image unavailable'
-                        : 'Image unavailable offline',
-                    style: TextStyle(color: Colors.grey[700], fontSize: 12),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (!isLocalImage)
-                    Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Will download when online',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 10),
-                        textAlign: TextAlign.center,
+          _buildSectionHeader('Container'),
+          Container(
+            padding: const EdgeInsets.fromLTRB(0, 2, 0, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (imageSrc != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5, left: 10),
+                    child: ClipRRect(
+                      child: CachedImageWidget(
+                        imagePath: imageSrc,
+                        width: 250,
+                        fit: BoxFit.contain,
+                        placeholder: Container(
+                          width: 250,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.blue[600]!,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                isLocalImage
+                                    ? 'Loading cached image...'
+                                    : 'Downloading image...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        errorWidget: Container(
+                          width: 250,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.red[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red[200]!),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isLocalImage
+                                    ? Icons.image_not_supported
+                                    : Icons.cloud_off,
+                                color: Colors.red[400],
+                                size: 40,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                isLocalImage
+                                    ? 'Cached image unavailable'
+                                    : 'Image unavailable offline',
+                                style: TextStyle(
+                                  color: Colors.red[700],
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              if (!isLocalImage)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    'Will download when online',
+                                    style: TextStyle(
+                                      color: Colors.red[600],
+                                      fontSize: 11,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                ],
-              ),
+                  ),
+
+                if (imageSrc != null && containerLabel.isNotEmpty)
+                  const SizedBox(height: 12),
+                if (containerLabel.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(10, 0, 0, 0),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _stripHtml(containerLabel),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -947,34 +1185,74 @@ class _TestInfoCard extends StatelessWidget {
   Widget _buildContainerLabel() {
     if (data['containerLabel'] == null) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(top: 2, bottom: 8),
-      child: Text(
-        _stripHtml(data['containerLabel']),
-        style: const TextStyle(height: 1.0),
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+        child: Text(
+          _stripHtml(data['containerLabel']),
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
       ),
     );
   }
 
   Widget _buildSampleVolume() {
-    if (data['sampleVolume'] == null) return const SizedBox.shrink();
+    final sampleVolume = (data['sampleVolume'] ?? '').toString().trim();
+    if (sampleVolume.isEmpty) return const SizedBox.shrink();
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Sample Volume:",
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          Html(
-            data: _processHtmlForAlignment(
-              _sanitizeData(
-                data['sampleVolume'],
-              ).toString().replaceAll('\n', '<br />'),
+          _buildSectionHeader('Sample Volume'),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+            child: Html(
+              data: _processHtmlForAlignment(
+                _sanitizeData(
+                  data['sampleVolume'],
+                ).toString().replaceAll('\n', '<br />'),
+              ),
+              style: {
+                "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+                "img": Style(display: Display.block),
+                "ul": Style(
+                  margin: Margins.zero,
+                  padding: HtmlPaddings.only(left: 20),
+                  listStylePosition: ListStylePosition.outside,
+                ),
+                "ol": Style(
+                  margin: Margins.zero,
+                  padding: HtmlPaddings.only(left: 20),
+                  listStylePosition: ListStylePosition.outside,
+                ),
+                "li": Style(margin: Margins.only(bottom: 5)),
+              },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDescription() {
+    final description = (data['description'] ?? '').toString().trim();
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Html(
+            data: _processHtmlForAlignment(data['description']),
             style: {
               "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-              "img": Style(display: Display.block),
+              "img": Style(
+                display: Display.block,
+                padding: HtmlPaddings.only(top: 20),
+              ),
               "ul": Style(
                 margin: Margins.zero,
                 padding: HtmlPaddings.only(left: 20),
@@ -993,56 +1271,36 @@ class _TestInfoCard extends StatelessWidget {
     );
   }
 
-  Widget _buildDescription() {
-    if (data['description'] == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Html(
-        data: _processHtmlForAlignment(data['description']),
-        style: {
-          "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-          "img": Style(display: Display.block),
-          "ul": Style(
-            margin: Margins.zero,
-            padding: HtmlPaddings.only(left: 20),
-            listStylePosition: ListStylePosition.outside,
-          ),
-          "ol": Style(
-            margin: Margins.zero,
-            padding: HtmlPaddings.only(left: 20),
-            listStylePosition: ListStylePosition.outside,
-          ),
-          "li": Style(margin: Margins.only(bottom: 5)),
-        },
-      ),
-    );
-  }
-
   Widget _buildRemark() {
-    if (data['remark'] == null) return const SizedBox.shrink();
+    final remark = (data['remark'] ?? '').toString().trim();
+    if (remark.isEmpty) return const SizedBox.shrink();
+
     return Padding(
-      padding: const EdgeInsets.only(top: 5),
+      padding: const EdgeInsets.only(top: 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Remark:", style: TextStyle(fontWeight: FontWeight.bold)),
-          Html(
-            data: _processHtmlForAlignment(data['remark']),
-            style: {
-              "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-              "img": Style(display: Display.block),
-              "ul": Style(
-                margin: Margins.zero,
-                padding: HtmlPaddings.only(left: 20),
-                listStylePosition: ListStylePosition.outside,
-              ),
-              "ol": Style(
-                margin: Margins.zero,
-                padding: HtmlPaddings.only(left: 20),
-                listStylePosition: ListStylePosition.outside,
-              ),
-              "li": Style(margin: Margins.only(bottom: 5)),
-            },
+          _buildSectionHeader('Remark'),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
+            child: Html(
+              data: _processHtmlForAlignment(data['remark']),
+              style: {
+                "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+                "img": Style(display: Display.block),
+                "ul": Style(
+                  margin: Margins.zero,
+                  padding: HtmlPaddings.only(left: 20),
+                  listStylePosition: ListStylePosition.outside,
+                ),
+                "ol": Style(
+                  margin: Margins.zero,
+                  padding: HtmlPaddings.only(left: 20),
+                  listStylePosition: ListStylePosition.outside,
+                ),
+                "li": Style(margin: Margins.only(bottom: 5)),
+              },
+            ),
           ),
         ],
       ),

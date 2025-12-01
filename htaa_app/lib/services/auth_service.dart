@@ -104,22 +104,22 @@ class AuthService {
         );
 
         if (response.statusCode == 200 || response.statusCode == 201) {
-          print('✅ User successfully stored in backend.');
+          print('User successfully stored in backend.');
         } else {
-          print('⚠️ Failed to save user to backend: ${response.body}');
+          print('Failed to save user to backend: ${response.body}');
         }
 
         // Sync local bookmarks to cloud after successful sign-in
-        print('🔄 Syncing local bookmarks to cloud...');
+        print('Syncing local bookmarks to cloud...');
         final bookmarkService = BookmarkService();
         await bookmarkService.syncPendingActions();
-        print('✅ Bookmark sync complete');
+        print('Bookmark sync complete');
 
         return true;
       }
       return false;
     } catch (error) {
-      print('❌ Error signing in with Google: $error');
+      print('Error signing in with Google: $error');
       print('Error details: ${error.runtimeType}');
       return false;
     }

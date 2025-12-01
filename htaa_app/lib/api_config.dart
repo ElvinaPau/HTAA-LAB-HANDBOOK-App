@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart'; // Add this import
+import 'package:flutter/foundation.dart';
 
 String getBaseUrl() {
   // For web (running in browser)
@@ -19,7 +19,7 @@ String getBaseUrl() {
     if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
       return "http://localhost:5001"; // iOS Simulator
     } else {
-      return "http://10.167.176.250:5001"; // Physical iPhone - YOUR IP
+      return "http://192.168.0.172:5001"; // Replace with your Mac's IP
     }
   }
 

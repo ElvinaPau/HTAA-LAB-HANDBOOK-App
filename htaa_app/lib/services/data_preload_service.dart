@@ -18,52 +18,84 @@ class DataPreloadService {
   static const String _testsBox = 'testsBox';
   static const String _testDetailsBox = 'testDetailsBox';
 
-  final String hostIp;
-
   /// Private internal constructor
-  DataPreloadService._internal(this.hostIp);
+  DataPreloadService._internal();
 
   /// Async factory constructor for automatic host IP detection
   static Future<DataPreloadService> create() async {
-    final hostIp = await _detectHostIp();
-    return DataPreloadService._internal(hostIp);
+    return DataPreloadService._internal();
   }
 
-  /// Detect host IP based on platform
-  static Future<String> _detectHostIp() async {
-    if (kIsWeb) return 'localhost';
-    if (Platform.isAndroid) return '10.0.2.2'; // Android emulator → localhost
+  /// Get the correct base URL depending on platform
+  String getBaseUrl() {
+    if (kIsWeb) return 'http://localhost:5001';
+    if (Platform.isAndroid) return 'http://10.0.2.2:5001';
     if (Platform.isIOS) {
-      final info = await DeviceInfoPlugin().iosInfo;
-      final isSimulator = !(info.isPhysicalDevice ?? false);
-      if (isSimulator) return 'localhost'; // iOS simulator → Mac localhost
-      // Real iOS device → replace with your Mac/PC LAN IP
-      return '10.167.177.92';
+      if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
+        return 'http://localhost:5001'; // iOS Simulator
+      } else {
+        return 'http://192.168.0.172:5001'; // Physical device – change to your LAN IP
+      }
     }
-    // Fallback for other platforms
-    return '192.168.1.100';
+    return 'http://localhost:5001'; // Desktop fallback
   }
 
-  /// Fix image URLs to use the correct host IP
-  String fixImageUrl(String url) {
-    if (url.isEmpty) return url;
-    return url.replaceAll(RegExp(r'^http://localhost'), 'http://$hostIp');
+  /// Test server connectivity
+  Future<bool> testServerConnection() async {
+    try {
+      final baseUrl = getBaseUrl();
+      print('Testing connection to: $baseUrl');
+
+      final response = await http
+          .get(Uri.parse('$baseUrl/api/categories'))
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        print('Server connection successful');
+        return true;
+      } else {
+        print('Server returned status: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      print('Server connection failed: $e');
+      print('Make sure your Flask server is running on ${getBaseUrl()}');
+      return false;
+    }
+  }
+
+  /// Normalize any image URL to absolute URL
+  String normalizeImageUrl(String imageUrl) {
+    final baseUrl = getBaseUrl();
+
+    // If it's already a full URL, check if it uses localhost and replace it
+    if (imageUrl.startsWith('http://localhost:') ||
+        imageUrl.startsWith('http://127.0.0.1:') ||
+        imageUrl.startsWith('https://localhost:') ||
+        imageUrl.startsWith('https://127.0.0.1:')) {
+      // Extract the path after the port number
+      final uri = Uri.parse(imageUrl);
+      final path = uri.path;
+      print('Converting localhost URL to: $baseUrl$path');
+      return '$baseUrl$path';
+    }
+
+    // If it's already a full URL with correct base, return as-is
+    if (imageUrl.startsWith(baseUrl)) {
+      return imageUrl;
+    }
+
+    // If it's a relative path, prepend base URL
+    return '$baseUrl${imageUrl.startsWith('/') ? imageUrl : '/$imageUrl'}';
   }
 
   /// Download and cache an image locally
   /// Returns the local file path if successful, null otherwise
   Future<String?> _downloadAndCacheImage(String imageUrl) async {
     try {
-      // Skip if URL is empty
       if (imageUrl.isEmpty) return null;
 
-      // Convert relative paths to absolute URLs
-      String absoluteUrl = imageUrl;
-      if (!imageUrl.startsWith('http')) {
-        // It's a relative path, prepend the base URL
-        absoluteUrl = 'http://$hostIp:5001$imageUrl';
-        print('📍 Converting relative path to: $absoluteUrl');
-      }
+      final absoluteUrl = normalizeImageUrl(imageUrl);
 
       // Generate unique filename from URL using MD5 hash
       final urlHash = md5.convert(utf8.encode(absoluteUrl)).toString();
@@ -83,7 +115,6 @@ class DataPreloadService {
       final directory = await getApplicationDocumentsDirectory();
       final imagesDir = Directory('${directory.path}/cached_images');
 
-      // Create directory if it doesn't exist
       if (!await imagesDir.exists()) {
         await imagesDir.create(recursive: true);
       }
@@ -91,35 +122,34 @@ class DataPreloadService {
       final filePath = '${imagesDir.path}/$cachedFileName';
       final file = File(filePath);
 
-      // Check if already cached
+      // Already cached?
       if (await file.exists()) {
-        print('✓ Image already cached: $cachedFileName');
+        print('Image already cached: $cachedFileName');
         return filePath;
       }
 
-      // Download image with timeout
-      print('⬇️ Downloading image: $absoluteUrl');
+      // Download with timeout
+      print('Downloading: $absoluteUrl');
       final response = await http
           .get(Uri.parse(absoluteUrl))
           .timeout(
             const Duration(seconds: 30),
-            onTimeout: () {
-              throw Exception('Image download timeout');
-            },
+            onTimeout: () => throw Exception('Image download timeout'),
           );
 
       if (response.statusCode == 200) {
         await file.writeAsBytes(response.bodyBytes);
-        print(
-          '✓ Image cached successfully: $cachedFileName (${response.bodyBytes.length} bytes)',
-        );
+        final sizeKB = (response.bodyBytes.length / 1024).toStringAsFixed(1);
+        print('Downloaded $cachedFileName ($sizeKB KB)');
         return filePath;
       } else {
-        print('⚠️ Failed to download image: HTTP ${response.statusCode}');
+        print(
+          'Failed to download image: HTTP ${response.statusCode} - $absoluteUrl',
+        );
         return null;
       }
     } catch (e) {
-      print('❌ Error caching image $imageUrl: $e');
+      print('Error caching image $imageUrl: $e');
       return null;
     }
   }
@@ -127,7 +157,15 @@ class DataPreloadService {
   /// Preload all data with optional progress callback
   Future<void> preloadAllData({ProgressCallback? onProgress}) async {
     try {
-      onProgress?.call('🔄 Fetching categories...', 0.05);
+      // Test server connection first
+      final isServerOnline = await testServerConnection();
+      if (!isServerOnline) {
+        throw Exception(
+          'Cannot connect to server at ${getBaseUrl()}. Please ensure the Flask server is running.',
+        );
+      }
+
+      onProgress?.call('Fetching categories...', 0.05);
       final categories = await _apiService.fetchCategories();
       await _cacheService.saveData(
         _categoriesBox,
@@ -135,14 +173,14 @@ class DataPreloadService {
         categories,
       );
 
-      // Calculate total tasks for progress tracking
       int totalTasks = 0;
       int imageCount = 0;
+      int imageFailures = 0;
 
       for (final category in categories) {
-        totalTasks += 1; // each category
+        totalTasks += 1;
         final tests = await _apiService.fetchTestsByCategory(category['id']);
-        totalTasks += tests.length; // each test detail
+        totalTasks += tests.length;
       }
 
       int completedTasks = 0;
@@ -150,7 +188,7 @@ class DataPreloadService {
       for (final category in categories) {
         final categoryId = category['id'];
         onProgress?.call(
-          '📦 Caching tests for category $categoryId...',
+          'Caching tests for category $categoryId...',
           completedTasks / totalTasks,
         );
 
@@ -161,7 +199,7 @@ class DataPreloadService {
         for (final test in tests) {
           final testId = test['id'];
           onProgress?.call(
-            '🧪 Caching details for test $testId...',
+            'Caching details for test $testId...',
             completedTasks / totalTasks,
           );
 
@@ -175,53 +213,27 @@ class DataPreloadService {
                   final extraData = info['extraData'];
 
                   if (extraData is Map) {
-                    // Look for image in extraData
                     dynamic imageData = extraData['image'];
                     String? imageUrl;
 
-                    // Extract the URL from different formats
                     if (imageData is String && imageData.isNotEmpty) {
                       imageUrl = imageData;
                     } else if (imageData is Map && imageData['url'] != null) {
                       imageUrl = imageData['url'].toString();
                     }
 
-                    // If we found an image URL/path, process it
                     if (imageUrl != null && imageUrl.isNotEmpty) {
-                      print('🖼️ Processing image for test $testId: $imageUrl');
+                      final isAlreadyLocalFile = imageUrl.contains(
+                        'cached_images/',
+                      );
+                      if (isAlreadyLocalFile) continue;
 
-                      // IMPORTANT: Skip if it's already a local file path (from previous cache)
-                      // Check if it's an absolute path (starts with platform-specific root)
-                      final isAlreadyLocalFile =
-                          imageUrl.startsWith('/var/') ||
-                          imageUrl.startsWith('/data/') ||
-                          imageUrl.contains('Documents/cached_images/');
-
-                      if (isAlreadyLocalFile) {
-                        print('✓ Already cached locally: $imageUrl');
-                        // Keep the existing local path
-                        continue;
-                      }
-
-                      // Convert relative paths to absolute URLs for downloading
-                      String downloadUrl = imageUrl;
-                      if (imageUrl.startsWith('/imgUploads') ||
-                          imageUrl.startsWith('imgUploads') ||
-                          imageUrl.startsWith('/uploads') ||
-                          (!imageUrl.startsWith('http'))) {
-                        // It's a relative path, prepend base URL
-                        downloadUrl =
-                            'http://$hostIp:5001${imageUrl.startsWith('/') ? imageUrl : '/$imageUrl'}';
-                        print('📍 Converting relative path to: $downloadUrl');
-                      }
-
-                      // Download and cache the image
+                      final downloadUrl = normalizeImageUrl(imageUrl);
                       final localPath = await _downloadAndCacheImage(
                         downloadUrl,
                       );
 
                       if (localPath != null) {
-                        // Update extraData with local file path
                         if (imageData is String) {
                           extraData['image'] = localPath;
                         } else if (imageData is Map) {
@@ -232,22 +244,16 @@ class DataPreloadService {
                           };
                         }
                         imageCount++;
-                        print('✅ Image cached for test $testId: $localPath');
                       } else {
-                        // Keep network URL as fallback
-                        final fixedUrl = downloadUrl;
-
+                        imageFailures++;
                         if (imageData is String) {
-                          extraData['image'] = fixedUrl;
+                          extraData['image'] = downloadUrl;
                         } else if (imageData is Map) {
                           extraData['image'] = {
-                            'url': fixedUrl,
+                            'url': downloadUrl,
                             'isLocalCache': false,
                           };
                         }
-                        print(
-                          '⚠️ Using network URL fallback for test $testId: $fixedUrl',
-                        );
                       }
                     }
                   }
@@ -261,22 +267,26 @@ class DataPreloadService {
               details,
             );
           } catch (e) {
-            print('⚠️ Failed to fetch details for test $testId: $e');
+            print('Failed to fetch details for test $testId: $e');
           }
+
           completedTasks++;
         }
       }
 
-      onProgress?.call('✅ All data preloaded successfully', 1.0);
-      print('✅ All data preloaded successfully.');
-      print('📊 Total images cached: $imageCount');
+      onProgress?.call('All data preloaded successfully', 1.0);
+      print('All data preloaded successfully.');
+      print('Images cached: $imageCount');
+      if (imageFailures > 0) {
+        print('Image download failures: $imageFailures');
+      }
     } catch (e) {
-      print('❌ Preload error: $e');
+      print('Preload error: $e');
       rethrow;
     }
   }
 
-  /// Clear all cached images (useful for debugging or freeing space)
+  /// Clear all cached images
   Future<void> clearImageCache() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
@@ -284,10 +294,10 @@ class DataPreloadService {
 
       if (await imagesDir.exists()) {
         await imagesDir.delete(recursive: true);
-        print('✅ Image cache cleared');
+        print('Image cache cleared');
       }
     } catch (e) {
-      print('❌ Error clearing image cache: $e');
+      print('Error clearing image cache: $e');
     }
   }
 
@@ -316,7 +326,7 @@ class DataPreloadService {
         'totalSizeMB': (totalSize / (1024 * 1024)).toStringAsFixed(2),
       };
     } catch (e) {
-      print('❌ Error getting cache stats: $e');
+      print('Error getting cache stats: $e');
       return {'imageCount': 0, 'totalSize': 0, 'error': e.toString()};
     }
   }

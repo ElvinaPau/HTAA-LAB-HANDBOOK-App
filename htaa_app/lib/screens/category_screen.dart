@@ -139,6 +139,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
                 .map<Map<String, dynamic>>(
                   (item) => Map<String, dynamic>.from(item),
                 )
+                .where((test) => test['status'] != 'deleted')
                 .toList();
 
         setState(() {
@@ -169,6 +170,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
               .map<Map<String, dynamic>>(
                 (item) => Map<String, dynamic>.from(item),
               )
+              .where((test) => test['status'] != 'deleted')
               .toList();
 
       setState(() {
@@ -180,8 +182,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
       });
 
       showTopMessage(
-        'You are offline. Data cannot be refreshed.',
-        color: Colors.red,
+        'You are offline. Tests cannot be refreshed.',
+        color: Colors.orange,
       );
     } else {
       setState(() {
@@ -315,7 +317,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
             ),
             if (_isOfflineMode) ...[
               const SizedBox(width: 6),
-              Icon(Icons.cloud_off, size: 18, color: Colors.orange),
+              Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
             ],
           ],
         ),
@@ -423,7 +425,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
                           child: ListView.builder(
                             controller: _scrollController,
                             physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                            padding: const EdgeInsets.fromLTRB(10, 8, 40, 8),
                             itemCount: filteredTests.length,
                             itemBuilder: (context, index) {
                               final test = filteredTests[index];
@@ -508,7 +510,10 @@ class _CategoryScreenState extends State<CategoryScreen> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(25.0),
-            borderSide: const BorderSide(color: Colors.blue, width: 2.0),
+            borderSide: BorderSide(
+              color: Theme.of(context).primaryColor,
+              width: 2.0,
+            ),
           ),
           contentPadding: const EdgeInsets.symmetric(
             vertical: 12.0,

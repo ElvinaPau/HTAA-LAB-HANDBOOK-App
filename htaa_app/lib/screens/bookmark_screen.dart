@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:htaa_app/services/bookmark_service.dart';
 import 'package:htaa_app/services/cache_service.dart';
@@ -257,28 +258,29 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
   }
 
   Future<void> _removeBookmark(int testId, String testName) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
       builder:
-          (context) => AlertDialog(
-            title: const Text('Remove Bookmark'),
+          (context) => CupertinoAlertDialog(
+            title: const Text(
+              'Remove Bookmark',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+            ),
             content: Text('Remove "$testName" from bookmarks?'),
             actions: [
-              TextButton(
+              CupertinoDialogAction(
                 onPressed: () => Navigator.pop(context, false),
                 child: const Text('Cancel'),
+                isDefaultAction: true, // bold blue text like iOS
               ),
-              TextButton(
+              CupertinoDialogAction(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text(
-                  'Remove',
-                  style: TextStyle(color: Colors.red),
-                ),
+                child: const Text('Remove'),
+                isDestructiveAction: true, // red text
               ),
             ],
           ),
     );
-
     if (confirmed == true) {
       final success = await _bookmarkService.removeBookmark(testId);
 
@@ -294,10 +296,6 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
 
         if (mounted) {
           if (_isOfflineMode && _authService.isLoggedIn) {
-            _showTopMessage(
-              'Bookmark removed (will sync when online)',
-              color: Colors.orange,
-            );
           } else {
             _showTopMessage('Bookmark removed', color: Colors.grey[800]!);
           }
@@ -312,23 +310,25 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
   Future<void> _clearAllBookmarks() async {
     if (_bookmarks.isEmpty) return;
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
       builder:
-          (context) => AlertDialog(
-            title: const Text('Clear All Bookmarks'),
-            content: Text('Remove all ${_bookmarks.length} bookmarks?'),
+          (context) => CupertinoAlertDialog(
+            title: const Text(
+              'Clear All Bookmarks',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            ),
+            content: Text('Remove all ${_bookmarks.length} bookmark(s)?'),
             actions: [
-              TextButton(
+              CupertinoDialogAction(
                 onPressed: () => Navigator.pop(context, false),
                 child: const Text('Cancel'),
+                isDefaultAction: true, // blue text like iOS
               ),
-              TextButton(
+              CupertinoDialogAction(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text(
-                  'Clear All',
-                  style: TextStyle(color: Colors.red),
-                ),
+                child: const Text('Clear All'),
+                isDestructiveAction: true, // red text
               ),
             ],
           ),
@@ -347,10 +347,6 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
 
       if (mounted) {
         if (_isOfflineMode && _authService.isLoggedIn) {
-          _showTopMessage(
-            'All bookmarks cleared (will sync when online)',
-            color: Colors.orange,
-          );
         } else {
           _showTopMessage('All bookmarks cleared', color: Colors.grey[800]!);
         }
@@ -494,13 +490,7 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
 
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.orange[600]!, Colors.orange[400]!],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+      decoration: BoxDecoration(color: Colors.orange),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -774,12 +764,12 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.blue[50],
+                      color: Theme.of(context).primaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       Icons.science_outlined,
-                      color: Colors.blue[700],
+                      color: Theme.of(context).primaryColor,
                       size: 24,
                     ),
                   ),
@@ -807,7 +797,10 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.bookmark, color: Colors.blue),
+                    icon: Icon(
+                      Icons.bookmark,
+                      color: Theme.of(context).primaryColor,
+                    ),
                     onPressed: () => _removeBookmark(testId, testName),
                     tooltip: 'Remove bookmark',
                   ),

@@ -36,7 +36,7 @@ Future<void> _runInitialPreload() async {
   final isOnline = await connectivity.isOnline();
 
   if (!isOnline) {
-    print('⚠️ Skipping preload — no internet connection');
+    print('Skipping preload — no internet connection');
     return;
   }
 
@@ -47,13 +47,13 @@ Future<void> _runInitialPreload() async {
     await preloadService.preloadAllData(
       onProgress: (message, progress) {
         // Optional: connect to a UI progress bar
-        print('🔹 $message (${(progress * 100).toStringAsFixed(1)}%)');
+        print('$message (${(progress * 100).toStringAsFixed(1)}%)');
       },
     );
 
-    print('✅ Preload complete — all test data cached locally.');
+    print('Preload complete — all test data cached locally.');
   } catch (e) {
-    print('❌ Preload failed: $e');
+    print('Preload failed: $e');
   }
 }
 
@@ -65,8 +65,13 @@ class HtaaApp extends StatelessWidget {
     return MaterialApp(
       title: 'HTAA LAB HANDBOOK',
       theme: ThemeData(
-        primaryColor: const Color(0xFF865BB8),
-        scaffoldBackgroundColor: const Color(0xFFFFEAFD),
+        primaryColor: const Color(0xFF8B5CF6),
+        scaffoldBackgroundColor: const Color(0xFFF5E6FF),
+        textTheme: Typography.englishLike2018.apply(
+          fontSizeFactor: 1.2,
+          bodyColor: Colors.black,
+          displayColor: Colors.black,
+        ),
       ),
       home: const HomeScreen(),
       debugShowCheckedModeBanner: false,
