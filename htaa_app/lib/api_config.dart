@@ -19,7 +19,7 @@ String getBaseUrl() {
     if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
       return "http://localhost:5001"; // iOS Simulator
     } else {
-      return "http://192.168.0.172:5001"; // Replace with your Mac's IP
+      return "http://10.128.66.115:5001"; // Replace with your Mac's IP
     }
   }
 

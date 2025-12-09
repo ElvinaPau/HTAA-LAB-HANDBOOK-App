@@ -9,6 +9,7 @@ import 'package:htaa_app/services/cache_service.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
+import 'package:htaa_app/widgets/search_with_history.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,10 +19,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class HomeScreenState extends State<HomeScreen> {
-  // ===== State variables =====
+  // State variables
   final AuthService _authService = AuthService();
   final ApiService _apiService = ApiService();
   final CacheService _cacheService = CacheService();
+  final GlobalKey<SearchWithHistoryState> _searchWithHistoryKey =
+      GlobalKey<SearchWithHistoryState>();
 
   List<Map<String, dynamic>> allCategories = [];
   String searchQuery = '';
@@ -41,10 +44,10 @@ class HomeScreenState extends State<HomeScreen> {
   static const String _cacheBoxName = 'categoriesBox';
   static const String _categoriesCacheKey = 'categories';
 
-  // ===== Connectivity =====
+  // Connectivity
   late final StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
-  // ===== Lifecycle =====
+  // Lifecycle
   @override
   void initState() {
     super.initState();
@@ -82,7 +85,7 @@ class HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  // ===== Fetch categories with caching =====
+  // Fetch categories with caching
   Future<void> fetchCategories() async {
     setState(() {
       isLoading = true;
@@ -164,7 +167,7 @@ class HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ===== Authentication =====
+  // Authentication
   Future<void> _handleGoogleSignIn() async {
     setState(() => _isAuthenticating = true);
     final success = await _authService.signInWithGoogle();
@@ -190,7 +193,7 @@ class HomeScreenState extends State<HomeScreen> {
     showTopMessage('Signed out successfully', color: Colors.grey[800]!);
   }
 
-  // ===== Search =====
+  // Search
   void performSearch() {
     FocusScope.of(context).unfocus();
     setState(() {
@@ -198,7 +201,7 @@ class HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // ===== Top message (non-overlay) =====
+  // Top message (non-overlay)
   void showTopMessage(String message, {Color color = Colors.black87}) {
     setState(() {
       topMessage = message;
@@ -210,7 +213,7 @@ class HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // ===== Profile Icon Builder =====
+  // Profile Icon Builder
   Widget _buildProfileIcon() {
     final photoUrl = _authService.userPhotoUrl;
     final userName = _authService.userName;
@@ -264,7 +267,7 @@ class HomeScreenState extends State<HomeScreen> {
     return name[0].toUpperCase();
   }
 
-  // ===== Build =====
+  // Build
   @override
   Widget build(BuildContext context) {
     final filteredCategories =
@@ -423,48 +426,48 @@ class HomeScreenState extends State<HomeScreen> {
                           children: [
                             // Search Bar
                             SizedBox(
-                              height: 50,
-                              child: TextField(
+                              child: SearchWithHistory(
+                                key: _searchWithHistoryKey,
+                                hintText: 'Search for categories...',
+                                historyKey: 'categorySearchHistory',
                                 controller: _searchController,
                                 focusNode: _searchFocusNode,
-                                decoration: InputDecoration(
-                                  hintText: 'Search for categories...',
-                                  prefixIcon: const Icon(Icons.search),
-                                  suffixIcon:
-                                      searchQuery.isNotEmpty
-                                          ? IconButton(
-                                            icon: const Icon(Icons.clear),
-                                            onPressed: () {
-                                              setState(() {
-                                                searchQuery = '';
-                                                _searchController.clear();
-                                              });
-                                            },
-                                          )
-                                          : null,
-                                  filled: true,
-                                  fillColor: Colors.grey[100],
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(25.0),
-                                    borderSide: const BorderSide(
-                                      color: Colors.grey,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(25.0),
-                                    borderSide: BorderSide(
-                                      color: Theme.of(context).primaryColor,
-                                      width: 2.0,
-                                    ),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 12.0,
-                                    horizontal: 20.0,
-                                  ),
-                                ),
-                                onChanged: (query) {
+                                onSearch: (query) {
                                   setState(() => searchQuery = query);
+                                },
+                                onHistoryItemTap: (item) {
+                                  // Find the category and navigate
+                                  final category = allCategories.firstWhere(
+                                    (cat) => cat['id'].toString() == item.id,
+                                    orElse: () => {},
+                                  );
+
+                                  if (category.isNotEmpty) {
+                                    final categoryName = category['name'];
+                                    final categoryId = category['id'];
+
+                                    if (categoryName == 'FORM') {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder:
+                                              (context) =>
+                                                  const FixFormScreen(),
+                                        ),
+                                      );
+                                    } else {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder:
+                                              (context) => CategoryScreen(
+                                                categoryName: categoryName,
+                                                categoryId: categoryId,
+                                              ),
+                                        ),
+                                      );
+                                    }
+                                  }
                                 },
                               ),
                             ),
@@ -516,6 +519,16 @@ class HomeScreenState extends State<HomeScreen> {
                                                               12,
                                                             ),
                                                         onTap: () {
+                                                          // Add to search history
+                                                          _searchWithHistoryKey
+                                                              .currentState
+                                                              ?.addToHistory(
+                                                                categoryId
+                                                                        ?.toString() ??
+                                                                    categoryName,
+                                                                categoryName,
+                                                              );
+
                                                           if (categoryName ==
                                                               'FORM') {
                                                             Navigator.push(
@@ -543,6 +556,7 @@ class HomeScreenState extends State<HomeScreen> {
                                                             );
                                                           }
                                                         },
+
                                                         child: Container(
                                                           height: 80,
                                                           alignment:

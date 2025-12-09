@@ -8,6 +8,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:htaa_app/services/cache_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
+import 'package:htaa_app/widgets/search_with_history.dart';
 
 class CategoryScreen extends StatefulWidget {
   final String categoryName;
@@ -25,6 +26,8 @@ class CategoryScreen extends StatefulWidget {
 
 class _CategoryScreenState extends State<CategoryScreen> {
   final CacheService _cacheService = CacheService();
+  final GlobalKey<SearchWithHistoryState> _searchWithHistoryKey =
+      GlobalKey<SearchWithHistoryState>();
 
   List<Map<String, dynamic>> tests = [];
   List<Map<String, dynamic>> filteredTests = [];
@@ -215,6 +218,16 @@ class _CategoryScreenState extends State<CategoryScreen> {
 
   Future<void> _onTestTap(Map<String, dynamic> test) async {
     final testId = test['id'];
+    final testName = _getTestName(test);
+
+    // Add to search history
+    if (testId != null) {
+      _searchWithHistoryKey.currentState?.addToHistory(
+        testId.toString(),
+        testName,
+      );
+    }
+
     final testData =
         Map<String, dynamic>.from(test)
           ..['category_name'] = widget.categoryName
@@ -487,40 +500,26 @@ class _CategoryScreenState extends State<CategoryScreen> {
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: TextField(
+      child: SearchWithHistory(
+        key: _searchWithHistoryKey,
+        hintText: 'Search tests...',
+        historyKey:
+            'testSearchHistory_${widget.categoryId ?? widget.categoryName}',
         controller: _searchController,
-        decoration: InputDecoration(
-          hintText: 'Search tests...',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon:
-              searchQuery.isNotEmpty
-                  ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchController.clear();
-                      _filterTests('');
-                    },
-                  )
-                  : null,
-          filled: true,
-          fillColor: Colors.grey[100],
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(25.0),
-            borderSide: const BorderSide(color: Colors.grey, width: 1.5),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(25.0),
-            borderSide: BorderSide(
-              color: Theme.of(context).primaryColor,
-              width: 2.0,
-            ),
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            vertical: 12.0,
-            horizontal: 20.0,
-          ),
-        ),
-        onChanged: _filterTests,
+        focusNode:
+            FocusNode(), // You can use your existing _searchFocusNode if you have one
+        onSearch: _filterTests,
+        onHistoryItemTap: (item) {
+          // Find the test and navigate
+          final test = tests.firstWhere(
+            (t) => t['id'].toString() == item.id,
+            orElse: () => {},
+          );
+
+          if (test.isNotEmpty) {
+            _onTestTap(test);
+          }
+        },
       ),
     );
   }
