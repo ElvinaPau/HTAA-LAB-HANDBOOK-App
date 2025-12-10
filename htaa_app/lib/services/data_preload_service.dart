@@ -34,7 +34,7 @@ class DataPreloadService {
       if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
         return 'http://localhost:5001'; // iOS Simulator
       } else {
-        return 'http://192.168.0.172:5001'; // Physical device – change to your LAN IP
+        return 'http://10.163.184.107:5001'; // Physical device – change to your LAN IP
       }
     }
     return 'http://localhost:5001'; // Desktop fallback

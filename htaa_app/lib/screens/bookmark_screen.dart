@@ -415,12 +415,14 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
               ],
               if (_isSyncing) ...[
                 const SizedBox(width: 8),
-                const SizedBox(
+                SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).primaryColor,
+                    ),
                   ),
                 ),
               ],
@@ -555,13 +557,16 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
       width: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.blue[700]!, Colors.blue[500]!],
+          colors: [
+            Theme.of(context).primaryColor.withOpacity(0.9),
+            Theme.of(context).primaryColor.withOpacity(0.7),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withOpacity(0.3),
+            color: Theme.of(context).primaryColor.withOpacity(0.3),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -666,15 +671,21 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.blue[50],
+                          color: Theme.of(
+                            context,
+                          ).primaryColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.blue[200]!),
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).primaryColor.withOpacity(0.3),
+                          ),
                         ),
                         child: Column(
                           children: [
                             Icon(
                               Icons.info_outline,
-                              color: Colors.blue[700],
+                              color: Theme.of(context).primaryColor,
                               size: 32,
                             ),
                             const SizedBox(height: 8),
@@ -683,7 +694,9 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.blue[900],
+                                color: Theme.of(
+                                  context,
+                                ).primaryColor.withOpacity(0.9),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -691,7 +704,9 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                               'Access your bookmarks on all your devices',
                               style: TextStyle(
                                 fontSize: 13,
-                                color: Colors.blue[700],
+                                color: Theme.of(
+                                  context,
+                                ).primaryColor.withOpacity(0.8),
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -703,7 +718,9 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                                   'Tap to sign in',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Colors.blue[900],
+                                    color: Theme.of(
+                                      context,
+                                    ).primaryColor.withOpacity(0.9),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -711,7 +728,7 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
                                 Icon(
                                   Icons.arrow_forward,
                                   size: 14,
-                                  color: Colors.blue[600],
+                                  color: Theme.of(context).primaryColor,
                                 ),
                               ],
                             ),

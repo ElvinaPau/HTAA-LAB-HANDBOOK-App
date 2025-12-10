@@ -186,6 +186,8 @@ class _ContactScreenState extends State<ContactScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : errorMessage != null
                     ? _buildErrorView()
+                    : contacts.isEmpty
+                    ? _buildEmptyView()
                     : RefreshIndicator(
                       onRefresh: fetchContacts,
                       child: ListView.builder(
@@ -240,6 +242,63 @@ class _ContactScreenState extends State<ContactScreen> {
       ),
     );
   }
+
+  Widget _buildEmptyView() => RefreshIndicator(
+    onRefresh: fetchContacts,
+    child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(
+          height: MediaQuery.of(context).size.height - 200,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.contact_mail_outlined,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No Contacts Found',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'There are no contact information available at the moment.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: fetchContacts,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _buildErrorView() => Center(
     child: Padding(
