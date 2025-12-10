@@ -273,24 +273,10 @@ class _ContactScreenState extends State<ContactScreen> {
                   const SizedBox(height: 8),
                   Text(
                     'There are no contact information available at the moment.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    onPressed: fetchContacts,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Refresh'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
