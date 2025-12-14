@@ -7,6 +7,7 @@ import '/api_config.dart';
 import 'package:htaa_app/services/cache_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
+import 'package:htaa_app/services/data_preload_service.dart';
 
 class ContactScreen extends StatefulWidget {
   const ContactScreen({super.key});
@@ -17,6 +18,7 @@ class ContactScreen extends StatefulWidget {
 
 class _ContactScreenState extends State<ContactScreen> {
   final CacheService _cacheService = CacheService();
+  late final DataPreloadService _preloadService;
 
   List<Map<String, dynamic>> contacts = [];
   bool isLoading = true;
@@ -37,11 +39,16 @@ class _ContactScreenState extends State<ContactScreen> {
   @override
   void initState() {
     super.initState();
-    fetchContacts();
+    _initPreloadService();
 
     _connectivitySubscription = ConnectivityService().connectivityStream.listen(
       _handleConnectivityChange,
     );
+  }
+
+  Future<void> _initPreloadService() async {
+    _preloadService = await DataPreloadService.create();
+    await fetchContacts();
   }
 
   void _handleConnectivityChange(ConnectivityResult result) {
@@ -50,6 +57,8 @@ class _ContactScreenState extends State<ContactScreen> {
     if (result != ConnectivityResult.none && _isOfflineMode) {
       setState(() => _isOfflineMode = false);
       showTopMessage('Back online!', color: Colors.green);
+      // Trigger background update when back online
+      _preloadService.updateInBackground();
     } else if (result == ConnectivityResult.none && !_isOfflineMode) {
       setState(() => _isOfflineMode = true);
       showTopMessage('You are offline', color: Colors.red);
@@ -73,15 +82,53 @@ class _ContactScreenState extends State<ContactScreen> {
     });
   }
 
-  Future<void> fetchContacts() async {
+  Future<void> fetchContacts({bool forceRefresh = false}) async {
     if (!mounted) return;
 
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-      _isOfflineMode = false;
-    });
+    // Only show loading spinner on initial load or when no cache exists
+    if (contacts.isEmpty) {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+    }
 
+    try {
+      // First, try to load from cache (preloaded data)
+      final cachedData = _cacheService.getData(
+        _cacheBoxName,
+        _contactsCacheKey,
+        defaultValue: null,
+        maxAge: const Duration(hours: 24),
+      );
+
+      if (cachedData != null && cachedData is List && !forceRefresh) {
+        // Load from cache immediately
+        setState(() {
+          contacts = List<Map<String, dynamic>>.from(
+            cachedData.map((item) => Map<String, dynamic>.from(item)),
+          );
+          isLoading = false;
+        });
+
+        // Then try to update in background if online
+        final connectivityResult = await Connectivity().checkConnectivity();
+        if (connectivityResult != ConnectivityResult.none) {
+          _updateContactsInBackground();
+        } else {
+          setState(() => _isOfflineMode = true);
+        }
+      } else {
+        // No cache or force refresh - fetch from network
+        await _fetchFromNetwork();
+      }
+    } catch (e) {
+      print('Error loading contacts: $e');
+      await _handleError();
+    }
+  }
+
+  Future<void> _fetchFromNetwork() async {
     try {
       final response = await http
           .get(
@@ -112,19 +159,63 @@ class _ContactScreenState extends State<ContactScreen> {
           _isOfflineMode = false;
         });
       } else {
-        await _loadFromCache();
+        throw Exception('Server returned ${response.statusCode}');
       }
-    } catch (_) {
-      await _loadFromCache();
+    } catch (e) {
+      await _handleError();
     }
   }
 
-  Future<void> _loadFromCache() async {
+  Future<void> _updateContactsInBackground({bool showSuccess = false}) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('${getBaseUrl()}/api/contacts'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final List data = json.decode(response.body);
+        final contactsList = List<Map<String, dynamic>>.from(data);
+
+        // Save to cache
+        await _cacheService.saveData(
+          _cacheBoxName,
+          _contactsCacheKey,
+          contactsList,
+        );
+
+        // Update UI if different
+        if (mounted && !_areContactsEqual(contacts, contactsList)) {
+          setState(() {
+            contacts = contactsList;
+          });
+          if (showSuccess) {
+            showTopMessage('Contacts updated', color: Colors.green);
+          }
+        }
+      }
+    } catch (e) {
+      print('Background update failed: $e');
+      // Silently fail - user already has cached data
+    }
+  }
+
+  bool _areContactsEqual(
+    List<Map<String, dynamic>> a,
+    List<Map<String, dynamic>> b,
+  ) {
+    if (a.length != b.length) return false;
+    return jsonEncode(a) == jsonEncode(b);
+  }
+
+  Future<void> _handleError() async {
+    // Try to load from cache one more time
     final cachedData = _cacheService.getData(
       _cacheBoxName,
       _contactsCacheKey,
       defaultValue: null,
-      maxAge: const Duration(hours: 24),
     );
 
     if (cachedData != null && cachedData is List) {
@@ -138,7 +229,7 @@ class _ContactScreenState extends State<ContactScreen> {
       });
 
       showTopMessage(
-        'You are offline. Contact cannot be refreshed.',
+        'You are offline. Contacts cannot be refreshed.',
         color: Colors.orange,
       );
     } else {
@@ -189,7 +280,8 @@ class _ContactScreenState extends State<ContactScreen> {
                     : contacts.isEmpty
                     ? _buildEmptyView()
                     : RefreshIndicator(
-                      onRefresh: fetchContacts,
+                      onRefresh:
+                          () => _updateContactsInBackground(showSuccess: true),
                       child: ListView.builder(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.all(16),

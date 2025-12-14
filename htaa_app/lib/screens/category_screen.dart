@@ -8,6 +8,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:htaa_app/services/cache_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
+import 'package:htaa_app/services/data_preload_service.dart';
 import 'package:htaa_app/widgets/search_with_history.dart';
 
 class CategoryScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class CategoryScreen extends StatefulWidget {
 
 class _CategoryScreenState extends State<CategoryScreen> {
   final CacheService _cacheService = CacheService();
+  late final DataPreloadService _preloadService;
   final GlobalKey<SearchWithHistoryState> _searchWithHistoryKey =
       GlobalKey<SearchWithHistoryState>();
 
@@ -63,11 +65,16 @@ class _CategoryScreenState extends State<CategoryScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchTests();
+    _initPreloadService();
 
     _connectivitySubscription = ConnectivityService().connectivityStream.listen(
       _handleConnectivityChange,
     );
+  }
+
+  Future<void> _initPreloadService() async {
+    _preloadService = await DataPreloadService.create();
+    await _fetchTests();
   }
 
   void _handleConnectivityChange(ConnectivityResult result) {
@@ -76,6 +83,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
     if (result != ConnectivityResult.none && _isOfflineMode) {
       setState(() => _isOfflineMode = false);
       showTopMessage('Back online!', color: Colors.green);
+      // Trigger background update when back online
+      _preloadService.updateInBackground();
     } else if (result == ConnectivityResult.none && !_isOfflineMode) {
       setState(() => _isOfflineMode = true);
       showTopMessage('You are offline', color: Colors.red);
@@ -110,15 +119,60 @@ class _CategoryScreenState extends State<CategoryScreen> {
     }
   }
 
-  Future<void> _fetchTests() async {
+  Future<void> _fetchTests({bool forceRefresh = false}) async {
     if (!mounted) return;
 
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-      _isOfflineMode = false;
-    });
+    // Only show loading spinner on initial load or when no cache exists
+    if (tests.isEmpty) {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+    }
 
+    try {
+      // First, try to load from cache (preloaded data)
+      final cachedData = _cacheService.getData(
+        _cacheBoxName,
+        _testsCacheKey,
+        defaultValue: null,
+        maxAge: const Duration(hours: 24),
+      );
+
+      if (cachedData != null && cachedData is List && !forceRefresh) {
+        // Load from cache immediately
+        final mappedData =
+            cachedData
+                .map<Map<String, dynamic>>(
+                  (item) => Map<String, dynamic>.from(item),
+                )
+                .where((test) => test['status'] != 'deleted')
+                .toList();
+
+        setState(() {
+          tests = mappedData;
+          filteredTests = mappedData;
+          isLoading = false;
+        });
+
+        // Then try to update in background if online
+        final connectivityResult = await Connectivity().checkConnectivity();
+        if (connectivityResult != ConnectivityResult.none) {
+          _updateTestsInBackground();
+        } else {
+          setState(() => _isOfflineMode = true);
+        }
+      } else {
+        // No cache or force refresh - fetch from network
+        await _fetchFromNetwork();
+      }
+    } catch (e) {
+      print('Error loading tests: $e');
+      await _handleError();
+    }
+  }
+
+  Future<void> _fetchFromNetwork() async {
     try {
       final response = await http
           .get(
@@ -152,19 +206,67 @@ class _CategoryScreenState extends State<CategoryScreen> {
           _isOfflineMode = false;
         });
       } else {
-        await _loadFromCache();
+        throw Exception('Server returned ${response.statusCode}');
       }
-    } catch (_) {
-      await _loadFromCache();
+    } catch (e) {
+      await _handleError();
     }
   }
 
-  Future<void> _loadFromCache() async {
+  Future<void> _updateTestsInBackground({bool showSuccess = false}) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse(_buildApiUrl()),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+
+        await _cacheService.saveData(_cacheBoxName, _testsCacheKey, data);
+
+        final mappedData =
+            data
+                .map<Map<String, dynamic>>(
+                  (item) => Map<String, dynamic>.from(item),
+                )
+                .where((test) => test['status'] != 'deleted')
+                .toList();
+
+        // Update UI if different
+        if (mounted && !_areTestsEqual(tests, mappedData)) {
+          setState(() {
+            tests = mappedData;
+            // Reapply search filter
+            _filterTests(searchQuery);
+          });
+          if (showSuccess) {
+            showTopMessage('Tests updated', color: Colors.green);
+          }
+        }
+      }
+    } catch (e) {
+      print('Background update failed: $e');
+      // Silently fail - user already has cached data
+    }
+  }
+
+  bool _areTestsEqual(
+    List<Map<String, dynamic>> a,
+    List<Map<String, dynamic>> b,
+  ) {
+    if (a.length != b.length) return false;
+    return jsonEncode(a) == jsonEncode(b);
+  }
+
+  Future<void> _handleError() async {
+    // Try to load from cache one more time
     final cachedData = _cacheService.getData(
       _cacheBoxName,
       _testsCacheKey,
       defaultValue: null,
-      maxAge: const Duration(hours: 24),
     );
 
     if (cachedData != null && cachedData is List) {
@@ -434,7 +536,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
                     filteredTests.isEmpty
                         ? _buildNoResultsView()
                         : RefreshIndicator(
-                          onRefresh: _fetchTests,
+                          onRefresh:
+                              () => _updateTestsInBackground(showSuccess: true),
                           child: ListView.builder(
                             controller: _scrollController,
                             physics: const AlwaysScrollableScrollPhysics(),
@@ -506,11 +609,9 @@ class _CategoryScreenState extends State<CategoryScreen> {
         historyKey:
             'testSearchHistory_${widget.categoryId ?? widget.categoryName}',
         controller: _searchController,
-        focusNode:
-            FocusNode(), // You can use your existing _searchFocusNode if you have one
+        focusNode: FocusNode(),
         onSearch: _filterTests,
         onHistoryItemTap: (item) {
-          // Find the test and navigate
           final test = tests.firstWhere(
             (t) => t['id'].toString() == item.id,
             orElse: () => {},

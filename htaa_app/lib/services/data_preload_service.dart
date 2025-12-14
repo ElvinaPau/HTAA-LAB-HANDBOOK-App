@@ -17,6 +17,8 @@ class DataPreloadService {
   static const String _categoriesBox = 'categoriesBox';
   static const String _testsBox = 'testsBox';
   static const String _testDetailsBox = 'testDetailsBox';
+  static const String _contactsBox = 'contactsBox';
+  static const String _formsBox = 'formsBox';
   static const String _metadataBox = 'metadataBox';
 
   // How often to check for updates
@@ -122,7 +124,7 @@ class DataPreloadService {
     }
   }
 
-  /// ✨ NEW: Save update metadata after successful preload
+  /// Save update metadata after successful preload
   Future<void> saveUpdateMetadata() async {
     try {
       await _cacheService.saveData(
@@ -268,6 +270,75 @@ class DataPreloadService {
     }
   }
 
+  /// Fetch and cache contacts
+  Future<void> _preloadContacts({ProgressCallback? onProgress}) async {
+    try {
+      onProgress?.call('Fetching contacts...', 0.0);
+      
+      final response = await http
+          .get(
+            Uri.parse('${getBaseUrl()}/api/contacts'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => throw Exception('Contacts request timed out'),
+          );
+
+      if (response.statusCode == 200) {
+        final List data = json.decode(response.body);
+        final contactsList = List<Map<String, dynamic>>.from(data);
+
+        await _cacheService.saveData(
+          _contactsBox,
+          'contacts',
+          contactsList,
+        );
+
+        print('Contacts preloaded successfully (${contactsList.length} items)');
+      } else {
+        print('Failed to fetch contacts: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error preloading contacts: $e');
+      // Don't rethrow - allow other data to continue loading
+    }
+  }
+
+  /// Fetch and cache forms
+  Future<void> _preloadForms({ProgressCallback? onProgress}) async {
+    try {
+      onProgress?.call('Fetching forms...', 0.0);
+      
+      final response = await http
+          .get(
+            Uri.parse('${getBaseUrl()}/api/forms'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => throw Exception('Forms request timed out'),
+          );
+
+      if (response.statusCode == 200) {
+        final List data = json.decode(response.body);
+
+        await _cacheService.saveData(
+          _formsBox,
+          'forms',
+          data,
+        );
+
+        print('Forms preloaded successfully (${data.length} items)');
+      } else {
+        print('Failed to fetch forms: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error preloading forms: $e');
+      // Don't rethrow - allow other data to continue loading
+    }
+  }
+
   /// Preload all data with optional progress callback
   Future<void> preloadAllData({ProgressCallback? onProgress}) async {
     try {
@@ -278,6 +349,14 @@ class DataPreloadService {
           'Cannot connect to server at ${getBaseUrl()}. Please check your internet connection and try again.',
         );
       }
+
+      // Preload contacts first
+      onProgress?.call('Fetching contacts...', 0.03);
+      await _preloadContacts(onProgress: onProgress);
+
+      // Preload forms
+      onProgress?.call('Fetching forms...', 0.04);
+      await _preloadForms(onProgress: onProgress);
 
       onProgress?.call('Fetching categories...', 0.05);
       final categories = await _apiService.fetchCategories();
@@ -303,7 +382,7 @@ class DataPreloadService {
         final categoryId = category['id'];
         onProgress?.call(
           'Caching tests for category $categoryId...',
-          completedTasks / totalTasks,
+          0.1 + (completedTasks / totalTasks * 0.9),
         );
 
         final tests = await _apiService.fetchTestsByCategory(categoryId);
@@ -314,7 +393,7 @@ class DataPreloadService {
           final testId = test['id'];
           onProgress?.call(
             'Caching details for test $testId...',
-            completedTasks / totalTasks,
+            0.1 + (completedTasks / totalTasks * 0.9),
           );
 
           try {
@@ -415,7 +494,7 @@ class DataPreloadService {
     }
   }
 
-  /// ✨ ENHANCED: Get cache statistics with update info
+  /// Get cache statistics with update info
   Future<Map<String, dynamic>> getCacheStats() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
