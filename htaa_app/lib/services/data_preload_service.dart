@@ -18,7 +18,7 @@ class DataPreloadService {
   static const String _testsBox = 'testsBox';
   static const String _testDetailsBox = 'testDetailsBox';
   static const String _metadataBox = 'metadataBox';
-  
+
   // How often to check for updates
   static const Duration _updateCheckInterval = Duration(hours: 24);
 
@@ -74,7 +74,9 @@ class DataPreloadService {
         }
 
         if (isProduction) {
-          print('Render free tier server is taking longer than expected to wake up.');
+          print(
+            'Render free tier server is taking longer than expected to wake up.',
+          );
           print('This can happen after 15 minutes of inactivity.');
           print('Please wait a moment and try again.');
         }
@@ -153,7 +155,7 @@ class DataPreloadService {
   Future<void> forceUpdate({ProgressCallback? onProgress}) async {
     try {
       onProgress?.call('Checking for updates...', 0.01);
-      
+
       final isOnline = await testServerConnection();
       if (!isOnline) {
         throw Exception('No internet connection');
@@ -161,9 +163,9 @@ class DataPreloadService {
 
       onProgress?.call('Downloading updates...', 0.05);
       await preloadAllData(onProgress: onProgress);
-      
+
       await saveUpdateMetadata();
-      
+
       print('Force update completed');
     } catch (e) {
       print('Force update failed: $e');
@@ -178,7 +180,7 @@ class DataPreloadService {
       if (!shouldUpdate) return;
 
       print('Starting background update...');
-      
+
       final isOnline = await testServerConnection();
       if (!isOnline) {
         print('No internet — skipping background update');
@@ -199,29 +201,22 @@ class DataPreloadService {
   String normalizeImageUrl(String imageUrl) {
     final baseUrl = getBaseUrl();
 
-    if (imageUrl.startsWith('http://localhost:') ||
-        imageUrl.startsWith('http://127.0.0.1:') ||
-        imageUrl.startsWith('https://localhost:') ||
-        imageUrl.startsWith('https://127.0.0.1:')) {
-      final uri = Uri.parse(imageUrl);
-      final path = uri.path;
-      print('Converting localhost URL to: $baseUrl$path');
-      return '$baseUrl$path';
-    }
-
-    if (imageUrl.startsWith(baseUrl)) {
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
       return imageUrl;
     }
 
-    return '$baseUrl${imageUrl.startsWith('/') ? imageUrl : '/$imageUrl'}';
+    if (imageUrl.startsWith('/')) {
+      return '$baseUrl$imageUrl';
+    }
+
+    return '$baseUrl/$imageUrl';
   }
 
   /// Download and cache an image locally
-  Future<String?> _downloadAndCacheImage(String imageUrl) async {
+  Future<String?> _downloadAndCacheImage(String absoluteUrl) async {
     try {
-      if (imageUrl.isEmpty) return null;
+      if (absoluteUrl.isEmpty) return null;
 
-      final absoluteUrl = normalizeImageUrl(imageUrl);
       final urlHash = md5.convert(utf8.encode(absoluteUrl)).toString();
 
       final uri = Uri.parse(absoluteUrl);
@@ -262,11 +257,13 @@ class DataPreloadService {
         print('Downloaded $cachedFileName ($sizeKB KB)');
         return filePath;
       } else {
-        print('Failed to download image: HTTP ${response.statusCode} - $absoluteUrl');
+        print(
+          'Failed to download image: HTTP ${response.statusCode} - $absoluteUrl',
+        );
         return null;
       }
     } catch (e) {
-      print('Error caching image $imageUrl: $e');
+      print('Error caching image $absoluteUrl: $e');
       return null;
     }
   }
@@ -340,11 +337,15 @@ class DataPreloadService {
                     }
 
                     if (imageUrl != null && imageUrl.isNotEmpty) {
-                      final isAlreadyLocalFile = imageUrl.contains('cached_images/');
+                      final isAlreadyLocalFile = imageUrl.contains(
+                        'cached_images/',
+                      );
                       if (isAlreadyLocalFile) continue;
 
                       final downloadUrl = normalizeImageUrl(imageUrl);
-                      final localPath = await _downloadAndCacheImage(downloadUrl);
+                      final localPath = await _downloadAndCacheImage(
+                        downloadUrl,
+                      );
 
                       if (localPath != null) {
                         if (imageData is String) {
@@ -446,9 +447,10 @@ class DataPreloadService {
         'totalSize': totalSize,
         'totalSizeMB': (totalSize / (1024 * 1024)).toStringAsFixed(2),
         'lastUpdate': lastUpdate?.toIso8601String(),
-        'lastUpdateAgo': lastUpdate != null
-            ? _formatDuration(DateTime.now().difference(lastUpdate))
-            : 'Never',
+        'lastUpdateAgo':
+            lastUpdate != null
+                ? _formatDuration(DateTime.now().difference(lastUpdate))
+                : 'Never',
       };
     } catch (e) {
       print('Error getting cache stats: $e');
