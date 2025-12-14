@@ -17,6 +17,10 @@ class DataPreloadService {
   static const String _categoriesBox = 'categoriesBox';
   static const String _testsBox = 'testsBox';
   static const String _testDetailsBox = 'testDetailsBox';
+  static const String _metadataBox = 'metadataBox';
+  
+  // How often to check for updates
+  static const Duration _updateCheckInterval = Duration(hours: 24);
 
   /// Private internal constructor
   DataPreloadService._internal();
@@ -28,85 +32,15 @@ class DataPreloadService {
 
   /// Get the correct base URL depending on platform
   String getBaseUrl() {
-    // ALWAYS use production Render URL (even in debug mode)
     return 'https://pathology-admin-dashboard-v2.onrender.com';
-    
-    // Uncomment below if you need local development server:
-    /*
-    if (kDebugMode) {
-      if (kIsWeb) return 'http://localhost:5001';
-      if (Platform.isAndroid) return 'http://10.0.2.2:5001';
-      if (Platform.isIOS) {
-        if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
-          return 'http://localhost:5001'; // iOS Simulator
-        } else {
-          return 'http://192.168.1.244:5001'; // Physical device
-        }
-      }
-      return 'http://localhost:5001'; // Desktop fallback
-    }
-    return 'https://pathology-admin-dashboard-v2.onrender.com';
-    */
-  }
-
-  /// Try multiple possible server URLs for development
-  Future<String?> _findWorkingServerUrl() async {
-    // Skip auto-detection since we're always using Render
-    return getBaseUrl();
-    
-    /* Uncomment for local development:
-    if (!kDebugMode || !Platform.isIOS) {
-      return getBaseUrl();
-    }
-
-    final possibleUrls = [
-      'http://192.168.1.244:5001',
-      'http://localhost:5001',
-      'http://127.0.0.1:5001',
-    ];
-
-    print('Attempting to find working server URL...');
-    
-    for (final url in possibleUrls) {
-      try {
-        print('Trying: $url');
-        final response = await http
-            .get(Uri.parse('$url/api/categories'))
-            .timeout(Duration(seconds: 3));
-
-        if (response.statusCode == 200) {
-          print('Found working server at: $url');
-          return url;
-        }
-      } catch (e) {
-        print('Failed: $url');
-        continue;
-      }
-    }
-
-    return null;
-    */
   }
 
   /// Test server connectivity with retry logic for cold starts
   Future<bool> testServerConnection() async {
     String baseUrl = getBaseUrl();
     final isProduction = baseUrl.contains('render.com');
-
-    // Since we're using Render, skip local detection
-    // In development, try to find working URL first
-    // if (!isProduction && Platform.isIOS) {
-    //   final workingUrl = await _findWorkingServerUrl();
-    //   if (workingUrl == null) {
-    //     print('\n Could not find server');
-    //     return false;
-    //   }
-    //   baseUrl = workingUrl;
-    // }
-
-    // Render free tier can take 60+ seconds for cold start
     final timeout = isProduction ? 90 : 10;
-    final maxRetries = isProduction ? 3 : 1; // More retries for Render
+    final maxRetries = isProduction ? 3 : 1;
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -140,9 +74,7 @@ class DataPreloadService {
         }
 
         if (isProduction) {
-          print(
-            'Render free tier server is taking longer than expected to wake up.',
-          );
+          print('Render free tier server is taking longer than expected to wake up.');
           print('This can happen after 15 minutes of inactivity.');
           print('Please wait a moment and try again.');
         }
@@ -153,43 +85,145 @@ class DataPreloadService {
     return false;
   }
 
+  /// Check if data needs to be updated
+  Future<bool> needsUpdate() async {
+    try {
+      // Check when last update was performed
+      final lastUpdateTime = _cacheService.getData(
+        _metadataBox,
+        'last_update_time',
+        defaultValue: null,
+      );
+
+      // Never updated before
+      if (lastUpdateTime == null) {
+        print('No previous update found — update needed');
+        return true;
+      }
+
+      // Check if enough time has passed
+      final lastUpdate = DateTime.parse(lastUpdateTime);
+      final timeSinceUpdate = DateTime.now().difference(lastUpdate);
+
+      print('Last update: ${_formatDuration(timeSinceUpdate)} ago');
+
+      if (timeSinceUpdate > _updateCheckInterval) {
+        print('Update interval exceeded — update needed');
+        return true;
+      }
+
+      print('Cache is up to date');
+      return false;
+    } catch (e) {
+      print('Error checking for updates: $e');
+      return false; // On error, don't force update
+    }
+  }
+
+  /// ✨ NEW: Save update metadata after successful preload
+  Future<void> saveUpdateMetadata() async {
+    try {
+      await _cacheService.saveData(
+        _metadataBox,
+        'last_update_time',
+        DateTime.now().toIso8601String(),
+      );
+      print('Update timestamp saved');
+    } catch (e) {
+      print('Failed to save update metadata: $e');
+    }
+  }
+
+  /// Get last update time
+  DateTime? getLastUpdateTime() {
+    try {
+      final timestamp = _cacheService.getData(
+        _metadataBox,
+        'last_update_time',
+        defaultValue: null,
+      );
+      if (timestamp == null) return null;
+      return DateTime.parse(timestamp);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Force update check and download
+  Future<void> forceUpdate({ProgressCallback? onProgress}) async {
+    try {
+      onProgress?.call('Checking for updates...', 0.01);
+      
+      final isOnline = await testServerConnection();
+      if (!isOnline) {
+        throw Exception('No internet connection');
+      }
+
+      onProgress?.call('Downloading updates...', 0.05);
+      await preloadAllData(onProgress: onProgress);
+      
+      await saveUpdateMetadata();
+      
+      print('Force update completed');
+    } catch (e) {
+      print('Force update failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Background update - silently updates without blocking UI
+  Future<void> updateInBackground() async {
+    try {
+      final shouldUpdate = await needsUpdate();
+      if (!shouldUpdate) return;
+
+      print('Starting background update...');
+      
+      final isOnline = await testServerConnection();
+      if (!isOnline) {
+        print('No internet — skipping background update');
+        return;
+      }
+
+      await preloadAllData();
+      await saveUpdateMetadata();
+
+      print('Background update completed');
+    } catch (e) {
+      print('Background update failed: $e');
+      // Silently fail - continue using cached data
+    }
+  }
+
   /// Normalize any image URL to absolute URL
   String normalizeImageUrl(String imageUrl) {
     final baseUrl = getBaseUrl();
 
-    // If it's already a full URL, check if it uses localhost and replace it
     if (imageUrl.startsWith('http://localhost:') ||
         imageUrl.startsWith('http://127.0.0.1:') ||
         imageUrl.startsWith('https://localhost:') ||
         imageUrl.startsWith('https://127.0.0.1:')) {
-      // Extract the path after the port number
       final uri = Uri.parse(imageUrl);
       final path = uri.path;
       print('Converting localhost URL to: $baseUrl$path');
       return '$baseUrl$path';
     }
 
-    // If it's already a full URL with correct base, return as-is
     if (imageUrl.startsWith(baseUrl)) {
       return imageUrl;
     }
 
-    // If it's a relative path, prepend base URL
     return '$baseUrl${imageUrl.startsWith('/') ? imageUrl : '/$imageUrl'}';
   }
 
   /// Download and cache an image locally
-  /// Returns the local file path if successful, null otherwise
   Future<String?> _downloadAndCacheImage(String imageUrl) async {
     try {
       if (imageUrl.isEmpty) return null;
 
       final absoluteUrl = normalizeImageUrl(imageUrl);
-
-      // Generate unique filename from URL using MD5 hash
       final urlHash = md5.convert(utf8.encode(absoluteUrl)).toString();
 
-      // Extract file extension from URL
       final uri = Uri.parse(absoluteUrl);
       final pathSegments = uri.path.split('/');
       final fileName = pathSegments.isNotEmpty ? pathSegments.last : '';
@@ -199,8 +233,6 @@ class DataPreloadService {
               : 'jpg';
 
       final cachedFileName = '$urlHash.$extension';
-
-      // Get app's document directory
       final directory = await getApplicationDocumentsDirectory();
       final imagesDir = Directory('${directory.path}/cached_images');
 
@@ -211,13 +243,11 @@ class DataPreloadService {
       final filePath = '${imagesDir.path}/$cachedFileName';
       final file = File(filePath);
 
-      // Already cached?
       if (await file.exists()) {
         print('Image already cached: $cachedFileName');
         return filePath;
       }
 
-      // Download with timeout
       print('Downloading: $absoluteUrl');
       final response = await http
           .get(Uri.parse(absoluteUrl))
@@ -232,9 +262,7 @@ class DataPreloadService {
         print('Downloaded $cachedFileName ($sizeKB KB)');
         return filePath;
       } else {
-        print(
-          'Failed to download image: HTTP ${response.statusCode} - $absoluteUrl',
-        );
+        print('Failed to download image: HTTP ${response.statusCode} - $absoluteUrl');
         return null;
       }
     } catch (e) {
@@ -246,7 +274,6 @@ class DataPreloadService {
   /// Preload all data with optional progress callback
   Future<void> preloadAllData({ProgressCallback? onProgress}) async {
     try {
-      // Test server connection first
       onProgress?.call('Connecting to server...', 0.02);
       final isServerOnline = await testServerConnection();
       if (!isServerOnline) {
@@ -313,15 +340,11 @@ class DataPreloadService {
                     }
 
                     if (imageUrl != null && imageUrl.isNotEmpty) {
-                      final isAlreadyLocalFile = imageUrl.contains(
-                        'cached_images/',
-                      );
+                      final isAlreadyLocalFile = imageUrl.contains('cached_images/');
                       if (isAlreadyLocalFile) continue;
 
                       final downloadUrl = normalizeImageUrl(imageUrl);
-                      final localPath = await _downloadAndCacheImage(
-                        downloadUrl,
-                      );
+                      final localPath = await _downloadAndCacheImage(downloadUrl);
 
                       if (localPath != null) {
                         if (imageData is String) {
@@ -391,14 +414,20 @@ class DataPreloadService {
     }
   }
 
-  /// Get cache statistics
+  /// ✨ ENHANCED: Get cache statistics with update info
   Future<Map<String, dynamic>> getCacheStats() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final imagesDir = Directory('${directory.path}/cached_images');
 
       if (!await imagesDir.exists()) {
-        return {'imageCount': 0, 'totalSize': 0};
+        return {
+          'imageCount': 0,
+          'totalSize': 0,
+          'totalSizeMB': '0.00',
+          'lastUpdate': null,
+          'lastUpdateAgo': 'Never',
+        };
       }
 
       final files = imagesDir.listSync();
@@ -410,14 +439,38 @@ class DataPreloadService {
         }
       }
 
+      final lastUpdate = getLastUpdateTime();
+
       return {
         'imageCount': files.length,
         'totalSize': totalSize,
         'totalSizeMB': (totalSize / (1024 * 1024)).toStringAsFixed(2),
+        'lastUpdate': lastUpdate?.toIso8601String(),
+        'lastUpdateAgo': lastUpdate != null
+            ? _formatDuration(DateTime.now().difference(lastUpdate))
+            : 'Never',
       };
     } catch (e) {
       print('Error getting cache stats: $e');
-      return {'imageCount': 0, 'totalSize': 0, 'error': e.toString()};
+      return {
+        'imageCount': 0,
+        'totalSize': 0,
+        'totalSizeMB': '0.00',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Format duration in human-readable format
+  String _formatDuration(Duration duration) {
+    if (duration.inDays > 0) {
+      return '${duration.inDays} day${duration.inDays > 1 ? 's' : ''}';
+    } else if (duration.inHours > 0) {
+      return '${duration.inHours} hour${duration.inHours > 1 ? 's' : ''}';
+    } else if (duration.inMinutes > 0) {
+      return '${duration.inMinutes} minute${duration.inMinutes > 1 ? 's' : ''}';
+    } else {
+      return 'Just now';
     }
   }
 }

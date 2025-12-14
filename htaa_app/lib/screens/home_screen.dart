@@ -6,6 +6,7 @@ import 'package:htaa_app/screens/fix_form_screen.dart';
 import 'package:htaa_app/services/auth_service.dart';
 import 'package:htaa_app/services/api_service.dart';
 import 'package:htaa_app/services/cache_service.dart';
+import 'package:htaa_app/services/data_preload_service.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
@@ -18,13 +19,18 @@ class HomeScreen extends StatefulWidget {
   HomeScreenState createState() => HomeScreenState();
 }
 
-class HomeScreenState extends State<HomeScreen> {
+// Add WidgetsBindingObserver for lifecycle events
+class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // State variables
   final AuthService _authService = AuthService();
   final ApiService _apiService = ApiService();
   final CacheService _cacheService = CacheService();
   final GlobalKey<SearchWithHistoryState> _searchWithHistoryKey =
       GlobalKey<SearchWithHistoryState>();
+
+  // DataPreloadService for auto-updates
+  DataPreloadService? _preloadService;
+  bool _isUpdatingInBackground = false;
 
   List<Map<String, dynamic>> allCategories = [];
   String searchQuery = '';
@@ -51,7 +57,8 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeAuth();
+    WidgetsBinding.instance.addObserver(this); // Add lifecycle observer
+    _initializeServices(); // Initialize all services
     fetchCategories();
 
     // Listen for connectivity changes
@@ -60,12 +67,91 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Initialize preload service
+  Future<void> _initializeServices() async {
+    await _initializeAuth();
+    _preloadService = await DataPreloadService.create();
+  }
+
+  // Handle app lifecycle changes for background updates
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    if (state == AppLifecycleState.resumed) {
+      // App came to foreground - check for updates silently
+      _checkForBackgroundUpdates();
+    }
+  }
+
+  // Silent background update check
+  Future<void> _checkForBackgroundUpdates() async {
+    if (_preloadService == null || _isUpdatingInBackground) return;
+
+    try {
+      setState(() => _isUpdatingInBackground = true);
+      
+      final needsUpdate = await _preloadService!.needsUpdate();
+      
+      if (needsUpdate) {
+        print('Background update available - downloading...');
+        
+        await _preloadService!.updateInBackground();
+        
+        // Refresh categories after update
+        await fetchCategories();
+        
+        if (mounted) {
+          showTopMessage('Data updated', color: Colors.green);
+        }
+      }
+    } catch (e) {
+      print('Background update failed: $e');
+      // Silently fail - don't interrupt user experience
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingInBackground = false);
+      }
+    }
+  }
+
+  // Manual refresh with force update option
+  Future<void> _handleManualRefresh() async {
+    if (_preloadService == null) {
+      await fetchCategories();
+      return;
+    }
+
+    try {
+      showTopMessage('Checking for updates...', color: Colors.blue);
+      
+      await _preloadService!.forceUpdate(
+        onProgress: (message, progress) {
+          print('$message (${(progress * 100).toStringAsFixed(0)}%)');
+        },
+      );
+
+      await fetchCategories();
+      
+      if (mounted) {
+        showTopMessage('Data refreshed', color: Colors.green);
+      }
+    } catch (e) {
+      print('Update failed: $e');
+      // Fall back to regular fetch
+      await fetchCategories();
+    }
+  }
+
   void _handleConnectivityChange(ConnectivityResult result) {
     if (!mounted) return;
 
     if (result != ConnectivityResult.none && _isOfflineMode) {
       setState(() => _isOfflineMode = false);
       showTopMessage('Back online!', color: Colors.green);
+      
+      // Check for updates when coming back online
+      _checkForBackgroundUpdates();
     } else if (result == ConnectivityResult.none && !_isOfflineMode) {
       setState(() => _isOfflineMode = true);
       showTopMessage('You are offline', color: Colors.red);
@@ -74,6 +160,7 @@ class HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // Remove observer
     _connectivitySubscription.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -290,9 +377,21 @@ class HomeScreenState extends State<HomeScreen> {
               "HTAA LAB HANDBOOK",
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
             ),
+            // Show both offline and updating indicators
             if (_isOfflineMode) ...[
               const SizedBox(width: 8),
               Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
+            ],
+            if (_isUpdatingInBackground && !_isOfflineMode) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                ),
+              ),
             ],
           ],
         ),
@@ -403,7 +502,7 @@ class HomeScreenState extends State<HomeScreen> {
                     isLoading
                         ? const Center(child: CircularProgressIndicator())
                         : errorMessage != null
-                        ? /* your error view */ Center(
+                        ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -422,7 +521,7 @@ class HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         )
-                        : /* your main content */ Column(
+                        : Column(
                           children: [
                             // Search Bar
                             SizedBox(
@@ -436,7 +535,6 @@ class HomeScreenState extends State<HomeScreen> {
                                   setState(() => searchQuery = query);
                                 },
                                 onHistoryItemTap: (item) {
-                                  // Find the category and navigate
                                   final category = allCategories.firstWhere(
                                     (cat) => cat['id'].toString() == item.id,
                                     orElse: () => {},
@@ -480,7 +578,8 @@ class HomeScreenState extends State<HomeScreen> {
                                         child: Text('No categories found.'),
                                       )
                                       : RefreshIndicator(
-                                        onRefresh: fetchCategories,
+                                        // Use manual refresh with force update
+                                        onRefresh: _handleManualRefresh,
                                         child: ListView.builder(
                                           itemCount: filteredCategories.length,
                                           itemBuilder: (context, index) {
@@ -519,7 +618,6 @@ class HomeScreenState extends State<HomeScreen> {
                                                               12,
                                                             ),
                                                         onTap: () {
-                                                          // Add to search history
                                                           _searchWithHistoryKey
                                                               .currentState
                                                               ?.addToHistory(
@@ -556,7 +654,6 @@ class HomeScreenState extends State<HomeScreen> {
                                                             );
                                                           }
                                                         },
-
                                                         child: Container(
                                                           height: 80,
                                                           alignment:
@@ -606,7 +703,6 @@ class HomeScreenState extends State<HomeScreen> {
                 iconSize: 28,
                 icon: const Icon(Icons.bookmark),
                 onPressed: () async {
-                  // Navigate to BookmarkScreen and wait for a result
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -614,15 +710,12 @@ class HomeScreenState extends State<HomeScreen> {
                     ),
                   );
 
-                  // If user signed in (BookmarkScreen returns true)
                   if (result == true) {
-                    // Re-fetch authentication info or refresh UI
-                    await _initializeAuth(); // if you already have this method
+                    await _initializeAuth();
                     setState(() {});
                   }
                 },
               ),
-
               const SizedBox(width: 48),
               IconButton(
                 iconSize: 28,

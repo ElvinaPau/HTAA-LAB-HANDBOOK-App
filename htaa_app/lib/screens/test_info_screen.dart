@@ -708,21 +708,31 @@ class _TestInfoCard extends StatelessWidget {
 
   List<String> _getSpecimenTypes() {
     final List<String> types = [];
-    if (data['specimenType'] != null) {
-      if (data['specimenType'] is List) {
+
+    final specimenType = data['specimenType'];
+    if (specimenType != null) {
+      if (specimenType is List) {
         types.addAll(
-          List<String>.from(
-            data['specimenType'],
-          ).where((type) => type != "Others..."),
+          specimenType
+              .map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty && e != 'Others...'),
         );
-      } else if (data['specimenType'] is String &&
-          data['specimenType'] != "Others...") {
-        types.add(data['specimenType']);
+      } else {
+        final value = specimenType.toString().trim();
+        if (value.isNotEmpty && value != 'Others...') {
+          types.add(value);
+        }
       }
     }
-    if (data['otherSpecimen'] != null) {
-      types.add(data['otherSpecimen'].toString());
+
+    final otherSpecimen = data['otherSpecimen'];
+    if (otherSpecimen != null) {
+      final value = otherSpecimen.toString().trim();
+      if (value.isNotEmpty) {
+        types.add(value);
+      }
     }
+
     return types;
   }
 

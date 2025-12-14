@@ -12,7 +12,7 @@ Future<void> main() async {
   // Initialize Hive
   await Hive.initFlutter();
 
-  // Open boxes
+  // Open boxes (including new metadataBox for update tracking)
   await Hive.openBox('categoriesBox');
   await Hive.openBox('testsBox');
   await Hive.openBox('testDetailsBox');
@@ -21,39 +21,52 @@ Future<void> main() async {
   await Hive.openBox('bookmarksBox');
   await Hive.openBox('pendingAdditionsBox');
   await Hive.openBox('pendingDeletionsBox');
+  await Hive.openBox('metadataBox'); //For tracking updates
 
   // Run app
   runApp(const HtaaApp());
 
-  // Trigger background preload (non-blocking)
+  // Trigger automatic update check (non-blocking)
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    _runInitialPreload();
+    _checkAndUpdateData();
   });
 }
 
-Future<void> _runInitialPreload() async {
+/// Automatically checks for updates and downloads if needed
+Future<void> _checkAndUpdateData() async {
   final connectivity = ConnectivityService();
   final isOnline = await connectivity.isOnline();
 
   if (!isOnline) {
-    print('Skipping preload — no internet connection');
+    print('Offline — using cached data');
     return;
   }
 
   try {
-    // Use async factory constructor
     final preloadService = await DataPreloadService.create();
 
-    await preloadService.preloadAllData(
-      onProgress: (message, progress) {
-        // Optional: connect to a UI progress bar
-        print('$message (${(progress * 100).toStringAsFixed(1)}%)');
-      },
-    );
+    // Check if update is needed
+    final needsUpdate = await preloadService.needsUpdate();
 
-    print('Preload complete — all test data cached locally.');
+    if (needsUpdate) {
+      print('Update detected — downloading latest data...');
+
+      await preloadService.preloadAllData(
+        onProgress: (message, progress) {
+          print('$message (${(progress * 100).toStringAsFixed(1)}%)');
+        },
+      );
+
+      // Save update timestamp
+      await preloadService.saveUpdateMetadata();
+
+      print('Update complete — data refreshed successfully');
+    } else {
+      print('Data is up to date — no update needed');
+    }
   } catch (e) {
-    print('Preload failed: $e');
+    print('Update failed: $e');
+    print('Continuing with cached data');
   }
 }
 
