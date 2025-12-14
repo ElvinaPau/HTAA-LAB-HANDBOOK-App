@@ -372,8 +372,9 @@ class _BookmarkScreenState extends State<BookmarkScreen> {
         color: Colors.green,
       );
       setState(() => _showSignInBanner = false);
+      _hasChanges = true; 
     } else {
-      _showTopMessage('Sign in cancelled or failed', color: Colors.red);
+      _showTopMessage('Sign in cancelled', color: Colors.red);
     }
   }
 

@@ -37,6 +37,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? errorMessage;
   bool _isAuthenticating = false;
   bool _isOfflineMode = false;
+  bool _isRefreshing = false;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -121,7 +122,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (result != ConnectivityResult.none && _isOfflineMode) {
       // Coming back online - trigger automatic reload and cache
       setState(() => _isOfflineMode = false);
-      showTopMessage('Back online! Reloading data...', color: Colors.blue);
+      showTopMessage('Back online! Reloading data...', color: Colors.green);
 
       // Automatically reload and cache all data
       _reloadAndCacheAllData();
@@ -131,7 +132,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  // NEW: Automatic reload and cache when back online
+  // Automatic reload and cache when back online
   Future<void> _reloadAndCacheAllData() async {
     if (_preloadService == null || _isUpdatingInBackground) return;
 
@@ -274,7 +275,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } else {
       if (mounted) {
-        showTopMessage('Sign in cancelled or failed', color: Colors.red);
+        showTopMessage('Sign in cancelled', color: Colors.red);
       }
     }
   }
@@ -389,14 +390,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
             if (_isUpdatingInBackground && !_isOfflineMode) ...[
               const SizedBox(width: 8),
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                ),
-              ),
+              SizedBox(width: 16, height: 16),
             ],
           ],
         ),
@@ -405,11 +399,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _isAuthenticating
               ? const Padding(
                 padding: EdgeInsets.all(16.0),
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+                child: SizedBox(width: 24, height: 24),
               )
               : PopupMenuButton<String>(
                 icon: _buildProfileIcon(),
@@ -504,9 +494,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Padding(
                 padding: const EdgeInsets.all(10.0),
                 child:
-                    isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : errorMessage != null
+                    errorMessage != null
                         ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -576,123 +564,163 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             const SizedBox(height: 10),
                             // Category List
-                            Expanded(
-                              child:
-                                  filteredCategories.isEmpty
-                                      ? const Center(
-                                        child: Text('No categories found.'),
-                                      )
-                                      : RefreshIndicator(
-                                        // Pull to refresh still available
-                                        onRefresh: () async {
-                                          if (_preloadService != null) {
-                                            await _reloadAndCacheAllData();
-                                          } else {
-                                            await fetchCategories();
-                                          }
-                                        },
-                                        child: ListView.builder(
-                                          itemCount: filteredCategories.length,
-                                          itemBuilder: (context, index) {
-                                            final category =
-                                                filteredCategories[index];
-                                            final categoryName =
-                                                category['name'];
-                                            final categoryId = category['id'];
+                            if (isLoading)
+                              const Padding(
+                                padding: EdgeInsets.all(20.0),
+                                child: CircularProgressIndicator(),
+                              )
+                            else
+                              Expanded(
+                                child:
+                                    filteredCategories.isEmpty
+                                        ? const Center(
+                                          child: Text('No categories found.'),
+                                        )
+                                        :
+                                        // Then update your RefreshIndicator section:
+                                        RefreshIndicator(
+                                          displacement: 0,
+                                          onRefresh: () async {
+                                            setState(
+                                              () => _isRefreshing = true,
+                                            ); // Set refreshing state
 
-                                            return Center(
-                                              child: LayoutBuilder(
-                                                builder: (
-                                                  context,
-                                                  constraints,
-                                                ) {
-                                                  return SizedBox(
-                                                    width:
-                                                        constraints.maxWidth *
-                                                        0.8,
-                                                    child: Card(
-                                                      color: Colors.white,
-                                                      elevation: 3,
-                                                      margin:
-                                                          const EdgeInsets.symmetric(
-                                                            vertical: 8.0,
-                                                          ),
-                                                      shape: RoundedRectangleBorder(
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              12,
-                                                            ),
-                                                      ),
-                                                      child: InkWell(
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              12,
-                                                            ),
-                                                        onTap: () {
-                                                          _searchWithHistoryKey
-                                                              .currentState
-                                                              ?.addToHistory(
-                                                                categoryId
-                                                                        ?.toString() ??
-                                                                    categoryName,
-                                                                categoryName,
-                                                              );
+                                            // Check if offline before attempting reload
+                                            if (_isOfflineMode) {
+                                              showTopMessage(
+                                                'You are offline. Categories cannot be refreshed.',
+                                                color: Colors.orange,
+                                              );
+                                              setState(
+                                                () => _isRefreshing = false,
+                                              ); // Reset state
+                                              return;
+                                            }
 
-                                                          if (categoryName ==
-                                                              'FORM') {
-                                                            Navigator.push(
-                                                              context,
-                                                              MaterialPageRoute(
-                                                                builder:
-                                                                    (context) =>
-                                                                        const FixFormScreen(),
+                                            if (_preloadService != null) {
+                                              await _reloadAndCacheAllData();
+                                            } else {
+                                              await fetchCategories();
+                                            }
+
+                                            setState(
+                                              () => _isRefreshing = false,
+                                            ); // Reset state
+                                          },
+                                          child: ListView.builder(
+                                            padding: EdgeInsets.only(
+                                              top:
+                                                  _isRefreshing
+                                                      ? 60
+                                                      : 0, // Dynamic padding based on refresh state
+                                              bottom: 16,
+                                            ),
+                                            physics:
+                                                const AlwaysScrollableScrollPhysics(),
+                                            itemCount:
+                                                filteredCategories.length,
+                                            itemBuilder: (context, index) {
+                                              final category =
+                                                  filteredCategories[index];
+                                              final categoryName =
+                                                  category['name'];
+                                              final categoryId = category['id'];
+
+                                              return Center(
+                                                child: LayoutBuilder(
+                                                  builder: (
+                                                    context,
+                                                    constraints,
+                                                  ) {
+                                                    return SizedBox(
+                                                      width:
+                                                          constraints.maxWidth *
+                                                          0.8,
+                                                      child: Card(
+                                                        color: Colors.white,
+                                                        elevation: 3,
+                                                        margin:
+                                                            const EdgeInsets.symmetric(
+                                                              vertical: 8.0,
+                                                            ),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
                                                               ),
-                                                            );
-                                                          } else {
-                                                            Navigator.push(
-                                                              context,
-                                                              MaterialPageRoute(
-                                                                builder:
-                                                                    (
-                                                                      context,
-                                                                    ) => CategoryScreen(
-                                                                      categoryName:
-                                                                          categoryName,
-                                                                      categoryId:
-                                                                          categoryId,
-                                                                    ),
+                                                        ),
+                                                        child: InkWell(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
                                                               ),
-                                                            );
-                                                          }
-                                                        },
-                                                        child: Container(
-                                                          height: 80,
-                                                          alignment:
-                                                              Alignment.center,
-                                                          child: Text(
-                                                            categoryName,
-                                                            textAlign:
-                                                                TextAlign
-                                                                    .center,
-                                                            style:
-                                                                const TextStyle(
-                                                                  fontSize: 16,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w600,
+                                                          onTap: () {
+                                                            _searchWithHistoryKey
+                                                                .currentState
+                                                                ?.addToHistory(
+                                                                  categoryId
+                                                                          ?.toString() ??
+                                                                      categoryName,
+                                                                  categoryName,
+                                                                );
+
+                                                            if (categoryName ==
+                                                                'FORM') {
+                                                              Navigator.push(
+                                                                context,
+                                                                MaterialPageRoute(
+                                                                  builder:
+                                                                      (
+                                                                        context,
+                                                                      ) =>
+                                                                          const FixFormScreen(),
                                                                 ),
+                                                              );
+                                                            } else {
+                                                              Navigator.push(
+                                                                context,
+                                                                MaterialPageRoute(
+                                                                  builder:
+                                                                      (
+                                                                        context,
+                                                                      ) => CategoryScreen(
+                                                                        categoryName:
+                                                                            categoryName,
+                                                                        categoryId:
+                                                                            categoryId,
+                                                                      ),
+                                                                ),
+                                                              );
+                                                            }
+                                                          },
+                                                          child: Container(
+                                                            height: 80,
+                                                            alignment:
+                                                                Alignment
+                                                                    .center,
+                                                            child: Text(
+                                                              categoryName,
+                                                              textAlign:
+                                                                  TextAlign
+                                                                      .center,
+                                                              style: const TextStyle(
+                                                                fontSize: 16,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w600,
+                                                              ),
+                                                            ),
                                                           ),
                                                         ),
                                                       ),
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            );
-                                          },
+                                                    );
+                                                  },
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
-                                      ),
-                            ),
+                              ),
                           ],
                         ),
               ),

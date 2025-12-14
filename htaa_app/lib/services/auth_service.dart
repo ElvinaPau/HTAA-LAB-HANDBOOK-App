@@ -135,9 +135,9 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('user_data');
 
-      print('✅ Successfully signed out');
+      print('Successfully signed out');
     } catch (error) {
-      print('❌ Error signing out: $error');
+      print('Error signing out: $error');
     }
   }
 

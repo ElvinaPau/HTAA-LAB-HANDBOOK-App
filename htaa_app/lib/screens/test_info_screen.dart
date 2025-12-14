@@ -76,6 +76,33 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     super.dispose();
   }
 
+  /// Deep cast a Map to Map<String, dynamic> including nested structures
+  Map<String, dynamic> _deepCastMap(dynamic data) {
+    if (data is! Map) return {};
+
+    final result = <String, dynamic>{};
+
+    data.forEach((key, value) {
+      final stringKey = key.toString();
+
+      if (value is Map) {
+        result[stringKey] = _deepCastMap(value);
+      } else if (value is List) {
+        result[stringKey] =
+            value.map((item) {
+              if (item is Map) {
+                return _deepCastMap(item);
+              }
+              return item;
+            }).toList();
+      } else {
+        result[stringKey] = value;
+      }
+    });
+
+    return result;
+  }
+
   // Enhanced notification system with icons
   void showTopMessage(
     String message, {
@@ -202,12 +229,12 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
       );
 
       if (cachedData != null && cachedData is Map) {
-        cachedData = await _fixImagePaths(
-          Map<String, dynamic>.from(cachedData),
-        );
+        // Properly cast the entire structure
+        final typedData = _deepCastMap(cachedData);
+        final fixedData = await _fixImagePaths(typedData);
 
         setState(() {
-          _cachedTestData = cachedData as Map<String, dynamic>;
+          _cachedTestData = fixedData;
           _isOfflineMode = true;
           _isLoading = false;
         });
@@ -392,7 +419,16 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.cloud_off, size: 18, color: Colors.orange[700]),
+                  Container(
+                    margin: const EdgeInsets.only(
+                      left: 8,
+                    ), // adjust value as needed
+                    child: Icon(
+                      Icons.cloud_off,
+                      size: 18,
+                      color: Colors.orange[700],
+                    ),
+                  ),
                   const SizedBox(width: 4),
                 ],
               ),
@@ -535,7 +571,9 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
             height: 48,
             child: CircularProgressIndicator(
               strokeWidth: 3,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                Theme.of(context).primaryColor,
+              ),
             ),
           ),
           const SizedBox(height: 16),
