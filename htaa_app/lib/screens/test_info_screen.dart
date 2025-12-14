@@ -182,6 +182,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           }
 
           if (imagePath != null && imagePath.startsWith('/')) {
+            // DON'T modify if it's already a cached image path
             if (!imagePath.contains('cached_images')) {
               final networkUrl = '$baseUrl$imagePath';
               if (imageData is String) {
@@ -692,6 +693,7 @@ class _TestInfoCard extends StatelessWidget {
     String? result;
 
     if (image is String) {
+      // PRIORITIZE cached images - return them as-is
       if (image.contains('cached_images')) {
         return image;
       }
@@ -709,6 +711,7 @@ class _TestInfoCard extends StatelessWidget {
       if (image['imageUrl'] != null) {
         final imageUrl = image['imageUrl'].toString();
 
+        // PRIORITIZE cached images - return them as-is
         if (imageUrl.contains('cached_images')) {
           return imageUrl;
         }
@@ -725,6 +728,7 @@ class _TestInfoCard extends StatelessWidget {
       } else if (image['url'] != null) {
         final String url = image['url'].toString();
 
+        // PRIORITIZE cached images - return them as-is
         if (url.contains('cached_images')) {
           return url;
         }
