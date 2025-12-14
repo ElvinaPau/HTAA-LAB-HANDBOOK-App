@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:htaa_app/services/api_service.dart';
 import 'package:htaa_app/services/cache_service.dart';
@@ -28,40 +28,129 @@ class DataPreloadService {
 
   /// Get the correct base URL depending on platform
   String getBaseUrl() {
-    if (kIsWeb) return 'http://localhost:5001';
-    if (Platform.isAndroid) return 'http://10.0.2.2:5001';
-    if (Platform.isIOS) {
-      if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
-        return 'http://localhost:5001'; // iOS Simulator
-      } else {
-        return 'http://10.163.184.107:5001'; // Physical device – change to your LAN IP
+    // ALWAYS use production Render URL (even in debug mode)
+    return 'https://pathology-admin-dashboard-v2.onrender.com';
+    
+    // Uncomment below if you need local development server:
+    /*
+    if (kDebugMode) {
+      if (kIsWeb) return 'http://localhost:5001';
+      if (Platform.isAndroid) return 'http://10.0.2.2:5001';
+      if (Platform.isIOS) {
+        if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) {
+          return 'http://localhost:5001'; // iOS Simulator
+        } else {
+          return 'http://192.168.1.244:5001'; // Physical device
+        }
       }
+      return 'http://localhost:5001'; // Desktop fallback
     }
-    return 'http://localhost:5001'; // Desktop fallback
+    return 'https://pathology-admin-dashboard-v2.onrender.com';
+    */
   }
 
-  /// Test server connectivity
+  /// Try multiple possible server URLs for development
+  Future<String?> _findWorkingServerUrl() async {
+    // Skip auto-detection since we're always using Render
+    return getBaseUrl();
+    
+    /* Uncomment for local development:
+    if (!kDebugMode || !Platform.isIOS) {
+      return getBaseUrl();
+    }
+
+    final possibleUrls = [
+      'http://192.168.1.244:5001',
+      'http://localhost:5001',
+      'http://127.0.0.1:5001',
+    ];
+
+    print('Attempting to find working server URL...');
+    
+    for (final url in possibleUrls) {
+      try {
+        print('Trying: $url');
+        final response = await http
+            .get(Uri.parse('$url/api/categories'))
+            .timeout(Duration(seconds: 3));
+
+        if (response.statusCode == 200) {
+          print('Found working server at: $url');
+          return url;
+        }
+      } catch (e) {
+        print('Failed: $url');
+        continue;
+      }
+    }
+
+    return null;
+    */
+  }
+
+  /// Test server connectivity with retry logic for cold starts
   Future<bool> testServerConnection() async {
-    try {
-      final baseUrl = getBaseUrl();
-      print('Testing connection to: $baseUrl');
+    String baseUrl = getBaseUrl();
+    final isProduction = baseUrl.contains('render.com');
 
-      final response = await http
-          .get(Uri.parse('$baseUrl/api/categories'))
-          .timeout(const Duration(seconds: 5));
+    // Since we're using Render, skip local detection
+    // In development, try to find working URL first
+    // if (!isProduction && Platform.isIOS) {
+    //   final workingUrl = await _findWorkingServerUrl();
+    //   if (workingUrl == null) {
+    //     print('\n Could not find server');
+    //     return false;
+    //   }
+    //   baseUrl = workingUrl;
+    // }
 
-      if (response.statusCode == 200) {
-        print('Server connection successful');
-        return true;
-      } else {
-        print('Server returned status: ${response.statusCode}');
+    // Render free tier can take 60+ seconds for cold start
+    final timeout = isProduction ? 90 : 10;
+    final maxRetries = isProduction ? 3 : 1; // More retries for Render
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        print('Testing connection to: $baseUrl (attempt $attempt/$maxRetries)');
+
+        if (attempt > 1 && isProduction) {
+          print('Render server may be waking up from sleep, please wait...');
+        }
+
+        final response = await http
+            .get(Uri.parse('$baseUrl/api/categories'))
+            .timeout(Duration(seconds: timeout));
+
+        if (response.statusCode == 200) {
+          print('Server connection successful');
+          return true;
+        } else {
+          print('Server returned status: ${response.statusCode}');
+          if (attempt < maxRetries) {
+            await Future.delayed(Duration(seconds: 5));
+            continue;
+          }
+          return false;
+        }
+      } catch (e) {
+        print('Server connection failed (attempt $attempt): $e');
+        if (attempt < maxRetries) {
+          print('Retrying in 5 seconds...');
+          await Future.delayed(Duration(seconds: 5));
+          continue;
+        }
+
+        if (isProduction) {
+          print(
+            'Render free tier server is taking longer than expected to wake up.',
+          );
+          print('This can happen after 15 minutes of inactivity.');
+          print('Please wait a moment and try again.');
+        }
         return false;
       }
-    } catch (e) {
-      print('Server connection failed: $e');
-      print('Make sure your Flask server is running on ${getBaseUrl()}');
-      return false;
     }
+
+    return false;
   }
 
   /// Normalize any image URL to absolute URL
@@ -158,10 +247,11 @@ class DataPreloadService {
   Future<void> preloadAllData({ProgressCallback? onProgress}) async {
     try {
       // Test server connection first
+      onProgress?.call('Connecting to server...', 0.02);
       final isServerOnline = await testServerConnection();
       if (!isServerOnline) {
         throw Exception(
-          'Cannot connect to server at ${getBaseUrl()}. Please ensure the Flask server is running.',
+          'Cannot connect to server at ${getBaseUrl()}. Please check your internet connection and try again.',
         );
       }
 
