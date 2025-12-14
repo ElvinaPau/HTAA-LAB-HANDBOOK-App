@@ -19,7 +19,6 @@ class HomeScreen extends StatefulWidget {
   HomeScreenState createState() => HomeScreenState();
 }
 
-// Add WidgetsBindingObserver for lifecycle events
 class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // State variables
   final AuthService _authService = AuthService();
@@ -57,8 +56,8 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this); // Add lifecycle observer
-    _initializeServices(); // Initialize all services
+    WidgetsBinding.instance.addObserver(this);
+    _initializeServices();
     fetchCategories();
 
     // Listen for connectivity changes
@@ -77,7 +76,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
+
     if (state == AppLifecycleState.resumed) {
       // App came to foreground - check for updates silently
       _checkForBackgroundUpdates();
@@ -90,17 +89,17 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     try {
       setState(() => _isUpdatingInBackground = true);
-      
+
       final needsUpdate = await _preloadService!.needsUpdate();
-      
+
       if (needsUpdate) {
         print('Background update available - downloading...');
-        
+
         await _preloadService!.updateInBackground();
-        
+
         // Refresh categories after update
         await fetchCategories();
-        
+
         if (mounted) {
           showTopMessage('Data updated', color: Colors.green);
         }
@@ -115,52 +114,63 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Manual refresh with force update option
-  Future<void> _handleManualRefresh() async {
-    if (_preloadService == null) {
-      await fetchCategories();
-      return;
-    }
-
-    try {
-      showTopMessage('Checking for updates...', color: Colors.blue);
-      
-      await _preloadService!.forceUpdate(
-        onProgress: (message, progress) {
-          print('$message (${(progress * 100).toStringAsFixed(0)}%)');
-        },
-      );
-
-      await fetchCategories();
-      
-      if (mounted) {
-        showTopMessage('Data refreshed', color: Colors.green);
-      }
-    } catch (e) {
-      print('Update failed: $e');
-      // Fall back to regular fetch
-      await fetchCategories();
-    }
-  }
-
+  // AUTO-RELOAD when coming back online
   void _handleConnectivityChange(ConnectivityResult result) {
     if (!mounted) return;
 
     if (result != ConnectivityResult.none && _isOfflineMode) {
+      // Coming back online - trigger automatic reload and cache
       setState(() => _isOfflineMode = false);
-      showTopMessage('Back online!', color: Colors.green);
-      
-      // Check for updates when coming back online
-      _checkForBackgroundUpdates();
+      showTopMessage('Back online! Reloading data...', color: Colors.blue);
+
+      // Automatically reload and cache all data
+      _reloadAndCacheAllData();
     } else if (result == ConnectivityResult.none && !_isOfflineMode) {
       setState(() => _isOfflineMode = true);
       showTopMessage('You are offline', color: Colors.red);
     }
   }
 
+  // NEW: Automatic reload and cache when back online
+  Future<void> _reloadAndCacheAllData() async {
+    if (_preloadService == null || _isUpdatingInBackground) return;
+
+    try {
+      setState(() => _isUpdatingInBackground = true);
+
+      print('Auto-reloading all data after coming back online...');
+
+      // Force update and preload all data
+      await _preloadService!.forceUpdate(
+        onProgress: (message, progress) {
+          print('$message (${(progress * 100).toStringAsFixed(0)}%)');
+        },
+      );
+
+      // Refresh categories to show updated data
+      await fetchCategories();
+
+      if (mounted) {
+        showTopMessage('All data reloaded successfully', color: Colors.green);
+      }
+    } catch (e) {
+      print('Auto-reload failed: $e');
+      // Fall back to regular fetch
+      await fetchCategories();
+
+      if (mounted) {
+        showTopMessage('Reload completed with errors', color: Colors.orange);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingInBackground = false);
+      }
+    }
+  }
+
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this); // Remove observer
+    WidgetsBinding.instance.removeObserver(this);
     _connectivitySubscription.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -177,7 +187,6 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       isLoading = true;
       errorMessage = null;
-      _isOfflineMode = false;
     });
 
     try {
@@ -204,7 +213,6 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         allCategories = categories;
         isLoading = false;
-        _isOfflineMode = false;
       });
     } catch (e) {
       // Try to load from cache
@@ -221,20 +229,17 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             cachedData.map((item) => Map<String, dynamic>.from(item)),
           );
           isLoading = false;
-          _isOfflineMode = true;
           errorMessage = null;
         });
 
-        // Show top message instead of overlay
-        showTopMessage(
-          'You are offline. Categories cannot be refreshed.',
-          color: Colors.orange,
-        );
+        // Don't set offline mode here - let connectivity listener handle it
+        if (!_isOfflineMode) {
+          showTopMessage('Using cached data', color: Colors.orange);
+        }
       } else {
         setState(() {
           errorMessage = _getErrorMessage(e);
           isLoading = false;
-          _isOfflineMode = false;
         });
       }
     }
@@ -295,7 +300,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       topMessageColor = color;
     });
 
-    Future.delayed(const Duration(seconds: 2), () {
+    Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => topMessage = null);
     });
   }
@@ -578,8 +583,14 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                         child: Text('No categories found.'),
                                       )
                                       : RefreshIndicator(
-                                        // Use manual refresh with force update
-                                        onRefresh: _handleManualRefresh,
+                                        // Pull to refresh still available
+                                        onRefresh: () async {
+                                          if (_preloadService != null) {
+                                            await _reloadAndCacheAllData();
+                                          } else {
+                                            await fetchCategories();
+                                          }
+                                        },
                                         child: ListView.builder(
                                           itemCount: filteredCategories.length,
                                           itemBuilder: (context, index) {
