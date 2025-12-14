@@ -280,8 +280,16 @@ class _ContactScreenState extends State<ContactScreen> {
                     : contacts.isEmpty
                     ? _buildEmptyView()
                     : RefreshIndicator(
-                      onRefresh:
-                          () => _updateContactsInBackground(showSuccess: true),
+                      onRefresh: () async {
+                        if (_isOfflineMode) {
+                          showTopMessage(
+                            'You are offline. Contacts cannot be refreshed.',
+                            color: Colors.orange,
+                          );
+                          return;
+                        }
+                        await _updateContactsInBackground(showSuccess: true);
+                      },
                       child: ListView.builder(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.all(16),

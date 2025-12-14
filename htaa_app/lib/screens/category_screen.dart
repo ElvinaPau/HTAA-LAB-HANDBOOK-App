@@ -536,8 +536,16 @@ class _CategoryScreenState extends State<CategoryScreen> {
                     filteredTests.isEmpty
                         ? _buildNoResultsView()
                         : RefreshIndicator(
-                          onRefresh:
-                              () => _updateTestsInBackground(showSuccess: true),
+                          onRefresh: () async {
+                            if (_isOfflineMode) {
+                              showTopMessage(
+                                'You are offline. Tests cannot be refreshed.',
+                                color: Colors.orange,
+                              );
+                              return;
+                            }
+                            await _updateTestsInBackground(showSuccess: true);
+                          },
                           child: ListView.builder(
                             controller: _scrollController,
                             physics: const AlwaysScrollableScrollPhysics(),

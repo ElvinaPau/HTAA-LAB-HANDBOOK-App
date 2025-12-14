@@ -546,8 +546,12 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                         itemCount: infos.length,
                         itemBuilder: (context, index) {
                           final info = infos[index];
-                          final Map<String, dynamic> d =
-                              info['extraData'] ?? {};
+                          final d =
+                              info['extraData'] != null
+                                  ? Map<String, dynamic>.from(
+                                    info['extraData'] as Map,
+                                  )
+                                  : <String, dynamic>{};
                           return _TestInfoCard(
                             data: d,
                             apiBaseUrl: apiBaseUrl,

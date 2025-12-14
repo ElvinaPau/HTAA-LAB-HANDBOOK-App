@@ -378,15 +378,23 @@ class FixFormScreenState extends State<FixFormScreen> {
                               ),
                             // Table
                             Expanded(
-                              child: RefreshIndicator(
-                                onRefresh:
-                                    () => _updateFormsInBackground(
-                                      showSuccess: true,
-                                    ),
-                                child:
-                                    filteredForms.isEmpty
-                                        ? _buildNoResultsView()
-                                        : LayoutBuilder(
+                              child:
+                                  filteredForms.isEmpty
+                                      ? _buildNoResultsView()
+                                      : RefreshIndicator(
+                                        onRefresh: () async {
+                                          if (_isOfflineMode) {
+                                            showTopMessage(
+                                              'You are offline. Forms cannot be refreshed.',
+                                              color: Colors.orange,
+                                            );
+                                            return;
+                                          }
+                                          await _updateFormsInBackground(
+                                            showSuccess: true,
+                                          );
+                                        },
+                                        child: LayoutBuilder(
                                           builder: (context, constraints) {
                                             final availableWidth =
                                                 constraints.maxWidth;
@@ -579,7 +587,7 @@ class FixFormScreenState extends State<FixFormScreen> {
                                             );
                                           },
                                         ),
-                              ),
+                                      ),
                             ),
                           ],
                         ),
