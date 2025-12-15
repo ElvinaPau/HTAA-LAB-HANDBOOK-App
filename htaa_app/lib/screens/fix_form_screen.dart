@@ -377,35 +377,47 @@ class FixFormScreenState extends State<FixFormScreen> {
                                   ),
                                 ),
                               ),
+
                             // Table with RefreshIndicator
+                            // Replace the Expanded widget section (around line 340) with this:
                             Expanded(
-                              child:
-                                  filteredForms.isEmpty
-                                      ? _buildNoResultsView()
-                                      : RefreshIndicator(
-                                        displacement: 0,
-                                        onRefresh: () async {
-                                          setState(() => _isRefreshing = true);
+                              child: RefreshIndicator(
+                                displacement: 0,
+                                onRefresh: () async {
+                                  setState(() => _isRefreshing = true);
 
-                                          // Check if offline before attempting reload
-                                          if (_isOfflineMode) {
-                                            showTopMessage(
-                                              'You are offline. Forms cannot be refreshed.',
-                                              color: Colors.orange,
-                                            );
-                                            setState(
-                                              () => _isRefreshing = false,
-                                            );
-                                            return;
-                                          }
+                                  // Check if offline before attempting reload
+                                  if (_isOfflineMode) {
+                                    showTopMessage(
+                                      'You are offline. Forms cannot be refreshed.',
+                                      color: Colors.orange,
+                                    );
+                                    setState(() => _isRefreshing = false);
+                                    return;
+                                  }
 
-                                          await _updateFormsInBackground(
-                                            showSuccess: true,
-                                          );
-
-                                          setState(() => _isRefreshing = false);
-                                        },
-                                        child: ListView(
+                                  await _updateFormsInBackground(
+                                    showSuccess: true,
+                                  );
+                                  setState(() => _isRefreshing = false);
+                                },
+                                child:
+                                    filteredForms.isEmpty
+                                        ? ListView(
+                                          physics:
+                                              const AlwaysScrollableScrollPhysics(),
+                                          children: [
+                                            SizedBox(
+                                              height:
+                                                  MediaQuery.of(
+                                                    context,
+                                                  ).size.height *
+                                                  0.6,
+                                              child: _buildNoResultsView(),
+                                            ),
+                                          ],
+                                        )
+                                        : ListView(
                                           padding: EdgeInsets.only(
                                             top: _isRefreshing ? 60 : 0,
                                             bottom: 16,
@@ -417,7 +429,6 @@ class FixFormScreenState extends State<FixFormScreen> {
                                               builder: (context, constraints) {
                                                 final availableWidth =
                                                     constraints.maxWidth;
-
                                                 final noWidth =
                                                     availableWidth * 0.10;
                                                 final fieldWidth =
@@ -609,7 +620,7 @@ class FixFormScreenState extends State<FixFormScreen> {
                                             ),
                                           ],
                                         ),
-                                      ),
+                              ),
                             ),
                           ],
                         ),

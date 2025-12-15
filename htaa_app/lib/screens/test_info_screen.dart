@@ -248,7 +248,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
     }
   }
 
-  Future<void> _refreshTestData() async {
+  Future<void> _refreshTestData({bool isUserTriggered = false}) async {
     if (!mounted) return;
 
     setState(() => _isLoading = true);
@@ -317,12 +317,15 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           _isLoading = false;
         });
 
-        String errorMessage = _getErrorMessage(e);
-        showTopMessage(
-          errorMessage,
-          color: Colors.red[600]!,
-          icon: Icons.error_outline,
-        );
+        // Only show error message if user triggered the refresh
+        if (isUserTriggered) {
+          String errorMessage = _getErrorMessage(e);
+          showTopMessage(
+            errorMessage,
+            color: Colors.red[600]!,
+            icon: Icons.error_outline,
+          );
+        }
       }
     }
   }
@@ -543,8 +546,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                           return;
                         }
 
-                        await _refreshTestData();
-
+                        await _refreshTestData(isUserTriggered: true);
                         setState(() => _isRefreshing = false);
                       },
                       child: ListView.builder(
@@ -648,7 +650,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
             if (_isOfflineMode) ...[
               const SizedBox(height: 24),
               ElevatedButton.icon(
-                onPressed: _refreshTestData,
+                onPressed: () => _refreshTestData(isUserTriggered: true),
                 icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('Retry'),
                 style: ElevatedButton.styleFrom(
