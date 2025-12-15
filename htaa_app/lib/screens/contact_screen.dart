@@ -24,6 +24,7 @@ class _ContactScreenState extends State<ContactScreen> {
   bool isLoading = true;
   String? errorMessage;
   bool _isOfflineMode = false;
+  bool _isRefreshing = false;
 
   // Top message state
   String? topMessage;
@@ -280,19 +281,32 @@ class _ContactScreenState extends State<ContactScreen> {
                     : contacts.isEmpty
                     ? _buildEmptyView()
                     : RefreshIndicator(
+                      displacement: 0,
                       onRefresh: () async {
+                        setState(() => _isRefreshing = true);
+
+                        // Check if offline before attempting reload
                         if (_isOfflineMode) {
                           showTopMessage(
                             'You are offline. Contacts cannot be refreshed.',
                             color: Colors.orange,
                           );
+                          setState(() => _isRefreshing = false);
                           return;
                         }
+
                         await _updateContactsInBackground(showSuccess: true);
+
+                        setState(() => _isRefreshing = false);
                       },
                       child: ListView.builder(
+                        padding: EdgeInsets.only(
+                          top: _isRefreshing ? 60 : 16,
+                          left: 16,
+                          right: 16,
+                          bottom: 16,
+                        ),
                         physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(16),
                         itemCount: contacts.length,
                         itemBuilder: (context, index) {
                           final contact = contacts[index];
@@ -343,76 +357,48 @@ class _ContactScreenState extends State<ContactScreen> {
     );
   }
 
-  Widget _buildEmptyView() => RefreshIndicator(
-    onRefresh: fetchContacts,
-    child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [
-        SizedBox(
-          height: MediaQuery.of(context).size.height - 200,
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.contact_mail_outlined,
-                    size: 64,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No Contacts Found',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'There are no contact information available at the moment.',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
+  Widget _buildEmptyView() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.contact_mail_outlined, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'No Contacts Found',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          Text(
+            'There are no contact information available at the moment.',
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     ),
   );
 
-  Widget _buildErrorView() => RefreshIndicator(
-    onRefresh: fetchContacts,
-    child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [
-        SizedBox(
-          height: MediaQuery.of(context).size.height - 200,
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                  const SizedBox(height: 16),
-                  Text(
-                    errorMessage!,
-                    style: const TextStyle(color: Colors.red, fontSize: 16),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
+  Widget _buildErrorView() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+          const SizedBox(height: 16),
+          Text(
+            errorMessage!,
+            style: const TextStyle(color: Colors.red, fontSize: 16),
+            textAlign: TextAlign.center,
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 }

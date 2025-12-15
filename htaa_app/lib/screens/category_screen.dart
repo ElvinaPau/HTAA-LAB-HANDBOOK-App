@@ -37,6 +37,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
   String? errorMessage;
   String searchQuery = '';
   bool _isOfflineMode = false;
+  bool _isRefreshing = false;
 
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -536,20 +537,33 @@ class _CategoryScreenState extends State<CategoryScreen> {
                     filteredTests.isEmpty
                         ? _buildNoResultsView()
                         : RefreshIndicator(
+                          displacement: 0,
                           onRefresh: () async {
+                            setState(() => _isRefreshing = true);
+
+                            // Check if offline before attempting reload
                             if (_isOfflineMode) {
                               showTopMessage(
                                 'You are offline. Tests cannot be refreshed.',
                                 color: Colors.orange,
                               );
+                              setState(() => _isRefreshing = false);
                               return;
                             }
+
                             await _updateTestsInBackground(showSuccess: true);
+
+                            setState(() => _isRefreshing = false);
                           },
                           child: ListView.builder(
                             controller: _scrollController,
+                            padding: EdgeInsets.only(
+                              top: _isRefreshing ? 60 : 8,
+                              left: 10,
+                              right: 40,
+                              bottom: 8,
+                            ),
                             physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(10, 8, 40, 8),
                             itemCount: filteredTests.length,
                             itemBuilder: (context, index) {
                               final test = filteredTests[index];

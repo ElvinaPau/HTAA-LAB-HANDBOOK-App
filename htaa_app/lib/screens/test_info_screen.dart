@@ -29,6 +29,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
   bool _isBookmarked = false;
   bool _isOfflineMode = false;
   bool _isLoading = false;
+  bool _isRefreshing = false;
   Map<String, dynamic>? _cachedTestData;
 
   // Top message state
@@ -240,10 +241,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           _isLoading = false;
         });
 
-        showTopMessage(
-          'You are offline. Test info cannot be refreshed.',
-          color: Colors.orange,
-        );
+        // Don't show message on initial load - only on refresh
       } else {
         await _refreshTestData();
       }
@@ -311,10 +309,8 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
           _isLoading = false;
         });
 
-        showTopMessage(
-          'You are offline. Test info cannot be refreshed.',
-          color: Colors.orange,
-        );
+        // Don't show message when loading cached data on error
+        // Message only shows when user actively tries to refresh
       } else {
         setState(() {
           _isOfflineMode = true;
@@ -421,9 +417,7 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    margin: const EdgeInsets.only(
-                      left: 8,
-                    ), // adjust value as needed
+                    margin: const EdgeInsets.only(left: 8),
                     child: Icon(
                       Icons.cloud_off,
                       size: 18,
@@ -510,14 +504,9 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                       },
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
-
-                        // REMOVE ALL INTERNAL PADDING
                         padding: EdgeInsets.zero,
-
-                        // REMOVE BUTTON MINIMUM CONSTRAINTS
                         minimumSize: Size(0, 0),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -540,9 +529,32 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
                     : infos.isEmpty
                     ? _buildEmptyState()
                     : RefreshIndicator(
-                      onRefresh: _refreshTestData,
+                      displacement: 0,
+                      onRefresh: () async {
+                        setState(() => _isRefreshing = true);
+
+                        // Check if offline before attempting reload
+                        if (_isOfflineMode) {
+                          showTopMessage(
+                            'You are offline. Test info cannot be refreshed.',
+                            color: Colors.orange,
+                          );
+                          setState(() => _isRefreshing = false);
+                          return;
+                        }
+
+                        await _refreshTestData();
+
+                        setState(() => _isRefreshing = false);
+                      },
                       child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
+                        padding: EdgeInsets.only(
+                          top: _isRefreshing ? 60 : 16,
+                          left: 16,
+                          right: 16,
+                          bottom: 16,
+                        ),
+                        physics: const AlwaysScrollableScrollPhysics(),
                         itemCount: infos.length,
                         itemBuilder: (context, index) {
                           final info = infos[index];

@@ -31,6 +31,7 @@ class FixFormScreenState extends State<FixFormScreen> {
   bool isLoading = true;
   String? errorMessage;
   bool _isOfflineMode = false;
+  bool _isRefreshing = false;
 
   // Top message state
   String? topMessage;
@@ -376,216 +377,237 @@ class FixFormScreenState extends State<FixFormScreen> {
                                   ),
                                 ),
                               ),
-                            // Table
+                            // Table with RefreshIndicator
                             Expanded(
                               child:
                                   filteredForms.isEmpty
                                       ? _buildNoResultsView()
                                       : RefreshIndicator(
+                                        displacement: 0,
                                         onRefresh: () async {
+                                          setState(() => _isRefreshing = true);
+
+                                          // Check if offline before attempting reload
                                           if (_isOfflineMode) {
                                             showTopMessage(
                                               'You are offline. Forms cannot be refreshed.',
                                               color: Colors.orange,
                                             );
+                                            setState(
+                                              () => _isRefreshing = false,
+                                            );
                                             return;
                                           }
+
                                           await _updateFormsInBackground(
                                             showSuccess: true,
                                           );
+
+                                          setState(() => _isRefreshing = false);
                                         },
-                                        child: LayoutBuilder(
-                                          builder: (context, constraints) {
-                                            final availableWidth =
-                                                constraints.maxWidth;
+                                        child: ListView(
+                                          padding: EdgeInsets.only(
+                                            top: _isRefreshing ? 60 : 0,
+                                            bottom: 16,
+                                          ),
+                                          physics:
+                                              const AlwaysScrollableScrollPhysics(),
+                                          children: [
+                                            LayoutBuilder(
+                                              builder: (context, constraints) {
+                                                final availableWidth =
+                                                    constraints.maxWidth;
 
-                                            final noWidth =
-                                                availableWidth * 0.10;
-                                            final fieldWidth =
-                                                availableWidth * 0.22;
-                                            final titleWidth =
-                                                availableWidth * 0.38;
-                                            final formWidth =
-                                                availableWidth * 0.30;
+                                                final noWidth =
+                                                    availableWidth * 0.10;
+                                                final fieldWidth =
+                                                    availableWidth * 0.22;
+                                                final titleWidth =
+                                                    availableWidth * 0.38;
+                                                final formWidth =
+                                                    availableWidth * 0.30;
 
-                                            return SingleChildScrollView(
-                                              physics:
-                                                  const AlwaysScrollableScrollPhysics(),
-                                              child: DataTable(
-                                                columnSpacing: 8,
-                                                horizontalMargin: 8,
-                                                dataRowMinHeight: 48,
-                                                dataRowMaxHeight:
-                                                    double.infinity,
-                                                border: TableBorder.all(
-                                                  color: Colors.grey.shade300,
-                                                ),
-                                                headingRowColor:
-                                                    MaterialStateProperty.resolveWith(
-                                                      (states) =>
-                                                          Colors.grey.shade200,
-                                                    ),
-                                                columns: [
-                                                  DataColumn(
-                                                    label: SizedBox(
-                                                      width: noWidth - 14,
-                                                      child: const Text(
-                                                        'No',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                        textAlign:
-                                                            TextAlign.center,
-                                                      ),
-                                                    ),
+                                                return DataTable(
+                                                  columnSpacing: 8,
+                                                  horizontalMargin: 8,
+                                                  dataRowMinHeight: 48,
+                                                  dataRowMaxHeight:
+                                                      double.infinity,
+                                                  border: TableBorder.all(
+                                                    color: Colors.grey.shade300,
                                                   ),
-                                                  DataColumn(
-                                                    label: SizedBox(
-                                                      width: fieldWidth - 16,
-                                                      child: const Text(
-                                                        'Field',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
+                                                  headingRowColor:
+                                                      MaterialStateProperty.resolveWith(
+                                                        (states) =>
+                                                            Colors
+                                                                .grey
+                                                                .shade200,
+                                                      ),
+                                                  columns: [
+                                                    DataColumn(
+                                                      label: SizedBox(
+                                                        width: noWidth - 14,
+                                                        child: const Text(
+                                                          'No',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                          ),
+                                                          textAlign:
+                                                              TextAlign.center,
                                                         ),
                                                       ),
                                                     ),
-                                                  ),
-                                                  DataColumn(
-                                                    label: SizedBox(
-                                                      width: titleWidth - 16,
-                                                      child: const Text(
-                                                        'Form Title',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  DataColumn(
-                                                    label: SizedBox(
-                                                      width: formWidth - 16,
-                                                      child: const Text(
-                                                        'Form',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                                rows: List<
-                                                  DataRow
-                                                >.generate(filteredForms.length, (
-                                                  index,
-                                                ) {
-                                                  final form =
-                                                      filteredForms[index];
-                                                  final linkText =
-                                                      form['link_text'] ??
-                                                      'Open Form';
-
-                                                  return DataRow(
-                                                    color:
-                                                        MaterialStateProperty.resolveWith(
-                                                          (states) =>
-                                                              index.isEven
-                                                                  ? Colors
-                                                                      .grey
-                                                                      .shade50
-                                                                  : Colors
-                                                                      .white,
-                                                        ),
-                                                    cells: [
-                                                      DataCell(
-                                                        Container(
-                                                          width: noWidth - 16,
-                                                          alignment:
-                                                              Alignment.center,
-                                                          padding:
-                                                              const EdgeInsets.symmetric(
-                                                                vertical: 8,
-                                                              ),
-                                                          child: Text(
-                                                            '${index + 1}',
+                                                    DataColumn(
+                                                      label: SizedBox(
+                                                        width: fieldWidth - 16,
+                                                        child: const Text(
+                                                          'Field',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.bold,
                                                           ),
                                                         ),
                                                       ),
-                                                      DataCell(
-                                                        Container(
-                                                          width:
-                                                              fieldWidth - 16,
-                                                          padding:
-                                                              const EdgeInsets.symmetric(
-                                                                vertical: 8,
-                                                              ),
-                                                          child: Text(
-                                                            form['field'] ??
-                                                                '-',
-                                                            softWrap: true,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .visible,
+                                                    ),
+                                                    DataColumn(
+                                                      label: SizedBox(
+                                                        width: titleWidth - 16,
+                                                        child: const Text(
+                                                          'Form Title',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.bold,
                                                           ),
                                                         ),
                                                       ),
-                                                      DataCell(
-                                                        Container(
-                                                          width:
-                                                              titleWidth - 16,
-                                                          padding:
-                                                              const EdgeInsets.symmetric(
-                                                                vertical: 8,
-                                                              ),
-                                                          child: Text(
-                                                            form['title'] ??
-                                                                '-',
-                                                            softWrap: true,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .visible,
+                                                    ),
+                                                    DataColumn(
+                                                      label: SizedBox(
+                                                        width: formWidth - 16,
+                                                        child: const Text(
+                                                          'Form',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.bold,
                                                           ),
                                                         ),
                                                       ),
-                                                      DataCell(
-                                                        Container(
-                                                          width: formWidth - 16,
-                                                          padding:
-                                                              const EdgeInsets.symmetric(
-                                                                vertical: 8,
-                                                              ),
-                                                          child: InkWell(
-                                                            onTap:
-                                                                () =>
-                                                                    _onFormTap(
-                                                                      form,
-                                                                    ),
+                                                    ),
+                                                  ],
+                                                  rows: List<
+                                                    DataRow
+                                                  >.generate(filteredForms.length, (
+                                                    index,
+                                                  ) {
+                                                    final form =
+                                                        filteredForms[index];
+                                                    final linkText =
+                                                        form['link_text'] ??
+                                                        'Open Form';
+
+                                                    return DataRow(
+                                                      color:
+                                                          MaterialStateProperty.resolveWith(
+                                                            (states) =>
+                                                                index.isEven
+                                                                    ? Colors
+                                                                        .grey
+                                                                        .shade50
+                                                                    : Colors
+                                                                        .white,
+                                                          ),
+                                                      cells: [
+                                                        DataCell(
+                                                          Container(
+                                                            width: noWidth - 16,
+                                                            alignment:
+                                                                Alignment
+                                                                    .center,
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  vertical: 8,
+                                                                ),
                                                             child: Text(
-                                                              linkText,
+                                                              '${index + 1}',
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        DataCell(
+                                                          Container(
+                                                            width:
+                                                                fieldWidth - 16,
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  vertical: 8,
+                                                                ),
+                                                            child: Text(
+                                                              form['field'] ??
+                                                                  '-',
                                                               softWrap: true,
                                                               overflow:
                                                                   TextOverflow
                                                                       .visible,
-                                                              style: const TextStyle(
-                                                                color:
-                                                                    Colors.blue,
-                                                                decoration:
-                                                                    TextDecoration
-                                                                        .underline,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        DataCell(
+                                                          Container(
+                                                            width:
+                                                                titleWidth - 16,
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  vertical: 8,
+                                                                ),
+                                                            child: Text(
+                                                              form['title'] ??
+                                                                  '-',
+                                                              softWrap: true,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .visible,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        DataCell(
+                                                          Container(
+                                                            width:
+                                                                formWidth - 16,
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  vertical: 8,
+                                                                ),
+                                                            child: InkWell(
+                                                              onTap:
+                                                                  () =>
+                                                                      _onFormTap(
+                                                                        form,
+                                                                      ),
+                                                              child: Text(
+                                                                linkText,
+                                                                softWrap: true,
+                                                                overflow:
+                                                                    TextOverflow
+                                                                        .visible,
+                                                                style: const TextStyle(
+                                                                  color:
+                                                                      Colors
+                                                                          .blue,
+                                                                  decoration:
+                                                                      TextDecoration
+                                                                          .underline,
+                                                                ),
                                                               ),
                                                             ),
                                                           ),
                                                         ),
-                                                      ),
-                                                    ],
-                                                  );
-                                                }),
-                                              ),
-                                            );
-                                          },
+                                                      ],
+                                                    );
+                                                  }),
+                                                );
+                                              },
+                                            ),
+                                          ],
                                         ),
                                       ),
                             ),

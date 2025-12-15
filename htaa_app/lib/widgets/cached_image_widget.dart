@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// A widget that intelligently displays images from either local cache or network
 class CachedImageWidget extends StatelessWidget {
@@ -22,6 +23,11 @@ class CachedImageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if it's a cached image path
+    if (imagePath.contains('cached_images')) {
+      return _buildCachedImage();
+    }
+
     // Check if it's a local file path (starts with '/')
     if (imagePath.startsWith('/')) {
       return _buildLocalImage();
@@ -29,6 +35,64 @@ class CachedImageWidget extends StatelessWidget {
 
     // Otherwise, it's a network URL
     return _buildNetworkImage();
+  }
+
+  Widget _buildCachedImage() {
+    return FutureBuilder<File?>(
+      future: _getCachedImageFile(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildPlaceholder();
+        }
+
+        if (snapshot.hasData && snapshot.data != null) {
+          final file = snapshot.data!;
+          return Image.file(
+            file,
+            width: width,
+            height: height,
+            fit: fit,
+            errorBuilder: (context, error, stackTrace) {
+              print('Error loading cached image: $error');
+              print('File path: ${file.path}');
+              return _buildError();
+            },
+          );
+        }
+
+        // File doesn't exist
+        print('Cached image file not found: $imagePath');
+        return _buildError();
+      },
+    );
+  }
+
+  Future<File?> _getCachedImageFile() async {
+    try {
+      // Extract the filename from the path
+      final filename = imagePath.split('/').last;
+
+      // Get the app's document directory
+      final appDir = await getApplicationDocumentsDirectory();
+
+      // Construct the full path to the cached image
+      final cachedImagePath = '${appDir.path}/cached_images/$filename';
+
+      print('Looking for cached image at: $cachedImagePath');
+
+      final file = File(cachedImagePath);
+
+      if (await file.exists()) {
+        print('Cached image found!');
+        return file;
+      } else {
+        print('Cached image does not exist at path');
+        return null;
+      }
+    } catch (e) {
+      print('Error getting cached image file: $e');
+      return null;
+    }
   }
 
   Widget _buildLocalImage() {
