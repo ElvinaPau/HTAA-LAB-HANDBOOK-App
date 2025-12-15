@@ -278,8 +278,6 @@ class _ContactScreenState extends State<ContactScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : errorMessage != null
                     ? _buildErrorView()
-                    : contacts.isEmpty
-                    ? _buildEmptyView()
                     : RefreshIndicator(
                       displacement: 0,
                       onRefresh: () async {
@@ -299,57 +297,71 @@ class _ContactScreenState extends State<ContactScreen> {
 
                         setState(() => _isRefreshing = false);
                       },
-                      child: ListView.builder(
-                        padding: EdgeInsets.only(
-                          top: _isRefreshing ? 60 : 16,
-                          left: 16,
-                          right: 16,
-                          bottom: 16,
-                        ),
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount: contacts.length,
-                        itemBuilder: (context, index) {
-                          final contact = contacts[index];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 16),
-                            elevation: 3,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      child:
+                          contacts.isEmpty
+                              ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
                                 children: [
-                                  // Title
-                                  Text(
-                                    contact['title'] ?? 'No title',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  // Description (HTML)
-                                  Html(
-                                    data:
-                                        contact['description'] ??
-                                        '<p>No description</p>',
-                                    style: {
-                                      "body": Style(
-                                        margin: Margins.zero,
-                                        padding: HtmlPaddings.zero,
-                                        fontSize: FontSize(14),
-                                        lineHeight: LineHeight(1.4),
-                                      ),
-                                    },
+                                  SizedBox(
+                                    height:
+                                        MediaQuery.of(context).size.height *
+                                        0.6,
+                                    child: _buildEmptyView(),
                                   ),
                                 ],
+                              )
+                              : ListView.builder(
+                                padding: EdgeInsets.only(
+                                  top: _isRefreshing ? 60 : 16,
+                                  left: 16,
+                                  right: 16,
+                                  bottom: 16,
+                                ),
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                itemCount: contacts.length,
+                                itemBuilder: (context, index) {
+                                  final contact = contacts[index];
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 16),
+                                    elevation: 3,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          // Title
+                                          Text(
+                                            contact['title'] ?? 'No title',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          // Description (HTML)
+                                          Html(
+                                            data:
+                                                contact['description'] ??
+                                                '<p>No description</p>',
+                                            style: {
+                                              "body": Style(
+                                                margin: Margins.zero,
+                                                padding: HtmlPaddings.zero,
+                                                fontSize: FontSize(14),
+                                                lineHeight: LineHeight(1.4),
+                                              ),
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            ),
-                          );
-                        },
-                      ),
                     ),
           ),
         ],

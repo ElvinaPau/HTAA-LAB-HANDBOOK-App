@@ -677,7 +677,7 @@ class FixFormScreenState extends State<FixFormScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Try different keywords',
+            'There are no forms available.',
             style: TextStyle(fontSize: 14, color: Colors.grey[500]),
             textAlign: TextAlign.center,
           ),
