@@ -879,10 +879,10 @@ class _TestInfoCard extends StatelessWidget {
     if (sampleVolume.isNotEmpty) children.add(_buildSampleVolume());
 
     final description = (data['description'] ?? '').toString().trim();
-    if (description.isNotEmpty) children.add(_buildDescription());
+    if (description.isNotEmpty) children.add(_buildDescription(context));
 
     final remark = (data['remark'] ?? '').toString().trim();
-    if (remark.isNotEmpty) children.add(_buildRemark());
+    if (remark.isNotEmpty) children.add(_buildRemark(context));
 
     return TweenAnimationBuilder<double>(
       duration: Duration(milliseconds: 300 + (index * 50)),
@@ -1306,7 +1306,7 @@ class _TestInfoCard extends StatelessWidget {
     );
   }
 
-  Widget _buildDescription() {
+  Widget _buildDescription(BuildContext context) {
     final description = (data['description'] ?? '').toString().trim();
     if (description.isEmpty) return const SizedBox.shrink();
 
@@ -1317,6 +1317,11 @@ class _TestInfoCard extends StatelessWidget {
         children: [
           Html(
             data: _processHtmlForAlignment(data['description']),
+            onLinkTap: (url, attributes, element) {
+              if (url != null) {
+                _launchUrl(context, url);
+              }
+            },
             style: {
               "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
               "img": Style(
@@ -1334,6 +1339,10 @@ class _TestInfoCard extends StatelessWidget {
                 listStylePosition: ListStylePosition.outside,
               ),
               "li": Style(margin: Margins.only(bottom: 5)),
+              "a": Style(
+                color: Colors.blue,
+                textDecoration: TextDecoration.underline,
+              ),
             },
           ),
         ],
@@ -1341,7 +1350,9 @@ class _TestInfoCard extends StatelessWidget {
     );
   }
 
-  Widget _buildRemark() {
+  // Also update _buildRemark() to make links clickable there too:
+
+  Widget _buildRemark(BuildContext context) {
     final remark = (data['remark'] ?? '').toString().trim();
     if (remark.isEmpty) return const SizedBox.shrink();
 
@@ -1355,6 +1366,11 @@ class _TestInfoCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(10, 2, 0, 10),
             child: Html(
               data: _processHtmlForAlignment(data['remark']),
+              onLinkTap: (url, attributes, element) {
+                if (url != null) {
+                  _launchUrl(context, url);
+                }
+              },
               style: {
                 "body": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
                 "img": Style(display: Display.block),
@@ -1369,6 +1385,10 @@ class _TestInfoCard extends StatelessWidget {
                   listStylePosition: ListStylePosition.outside,
                 ),
                 "li": Style(margin: Margins.only(bottom: 5)),
+                "a": Style(
+                  color: Colors.blue,
+                  textDecoration: TextDecoration.underline,
+                ),
               },
             ),
           ),
