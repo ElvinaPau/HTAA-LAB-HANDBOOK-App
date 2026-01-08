@@ -234,6 +234,12 @@ class _TestInfoScreenState extends State<TestInfoScreen> with RouteAware {
         // Properly cast the entire structure
         final typedData = _deepCastMap(cachedData);
         final fixedData = await _fixImagePaths(typedData);
+        if (widget.tests['category_name'] != null) {
+          fixedData['category_name'] = widget.tests['category_name'];
+        }
+        if (widget.tests['category_id'] != null) {
+          fixedData['category_id'] = widget.tests['category_id'];
+        }
 
         setState(() {
           _cachedTestData = fixedData;
