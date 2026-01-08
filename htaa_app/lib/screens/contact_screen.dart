@@ -8,6 +8,7 @@ import 'package:htaa_app/services/cache_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:htaa_app/services/connectivity_service.dart';
 import 'package:htaa_app/services/data_preload_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ContactScreen extends StatefulWidget {
   const ContactScreen({super.key});
@@ -203,6 +204,45 @@ class _ContactScreenState extends State<ContactScreen> {
     }
   }
 
+  Future<void> _launchUrl(String urlString) async {
+    try {
+      final Uri uri = Uri.parse(urlString);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text('Could not launch $urlString'),
+                ],
+              ),
+              backgroundColor: Colors.red[600],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Error launching URL: $e'),
+              ],
+            ),
+            backgroundColor: Colors.red[600],
+          ),
+        );
+      }
+    }
+  }
+
   bool _areContactsEqual(
     List<Map<String, dynamic>> a,
     List<Map<String, dynamic>> b,
@@ -347,12 +387,26 @@ class _ContactScreenState extends State<ContactScreen> {
                                             data:
                                                 contact['description'] ??
                                                 '<p>No description</p>',
+                                            onLinkTap: (
+                                              url,
+                                              attributes,
+                                              element,
+                                            ) {
+                                              if (url != null) {
+                                                _launchUrl(url);
+                                              }
+                                            },
                                             style: {
                                               "body": Style(
                                                 margin: Margins.zero,
                                                 padding: HtmlPaddings.zero,
                                                 fontSize: FontSize(14),
                                                 lineHeight: LineHeight(1.4),
+                                              ),
+                                              "a": Style(
+                                                color: Colors.blue,
+                                                textDecoration:
+                                                    TextDecoration.underline,
                                               ),
                                             },
                                           ),
